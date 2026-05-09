@@ -67,17 +67,26 @@ class SearchFragment : Fragment() {
 
             val query = text.toString()
             searchJob = viewLifecycleOwner.lifecycleScope.launch {
-                val embedding = withContext(Dispatchers.IO) {
-                    VectorStore.init(requireContext())
-                    ClipTextEncoder.load(requireContext())
-                    ClipTextEncoder.encode(query)
-                } ?: return@launch
+                val ctx = requireContext()
+                val pathToUri = viewModel.entries.associate { it.path to it.uri }
 
                 val paths = withContext(Dispatchers.IO) {
-                    VectorStore.findSimilar(embedding, topK = 5)
+                    VectorStore.init(ctx)
+
+                    // Text hits first (OCR)
+                    val textHits = VectorStore.findByText(query, limit = 5)
+
+                    // Fill remaining slots with embedding similarity
+                    val embeddingHits = if (textHits.size < 5) {
+                        ClipTextEncoder.load(ctx)
+                        val embedding = ClipTextEncoder.encode(query)
+                        if (embedding != null) VectorStore.findSimilar(embedding, topK = 5) else emptyList()
+                    } else emptyList()
+
+                    // Merge: text hits first, no duplicates, cap at 5
+                    (textHits + embeddingHits.filter { it !in textHits }).take(5)
                 }
 
-                val pathToUri = viewModel.entries.associate { it.path to it.uri }
                 val results = paths.map { path ->
                     val uri = pathToUri[path] ?: Uri.fromFile(File(path))
                     GalleryItem.Image(uri, path)

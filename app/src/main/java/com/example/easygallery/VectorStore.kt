@@ -10,8 +10,9 @@ import java.nio.ByteOrder
 object VectorStore {
 
     private const val DB_NAME = "embeddings.db"
-    private const val DB_VERSION = 1
+    private const val DB_VERSION = 2
     private const val TABLE = "embeddings"
+    private const val OCR_TABLE = "ocr"
 
     private var helper: DbHelper? = null
 
@@ -50,6 +51,58 @@ object VectorStore {
             return if (it.moveToFirst()) it.getInt(0) else 0
         }
     }
+
+    // --- OCR ---
+
+    fun hasOcr(hash: String): Boolean {
+        val db = helper!!.readableDatabase
+        db.rawQuery("SELECT 1 FROM $OCR_TABLE WHERE hash = ?", arrayOf(hash)).use {
+            return it.moveToFirst()
+        }
+    }
+
+    fun insertOcr(hash: String, path: String, text: String?) {
+        val cv = ContentValues().apply {
+            put("hash", hash)
+            put("path", path)
+            put("ocr_text", text)
+        }
+        helper!!.writableDatabase
+            .insertWithOnConflict(OCR_TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE)
+    }
+
+    fun updateOcrPath(hash: String, path: String) {
+        val cv = ContentValues().apply { put("path", path) }
+        helper!!.writableDatabase.update(OCR_TABLE, cv, "hash = ?", arrayOf(hash))
+    }
+
+    fun ocrCount(): Int {
+        val db = helper!!.readableDatabase
+        db.rawQuery("SELECT COUNT(*) FROM $OCR_TABLE", null).use {
+            return if (it.moveToFirst()) it.getInt(0) else 0
+        }
+    }
+
+    fun getOcrText(path: String): String? {
+        val db = helper!!.readableDatabase
+        db.rawQuery("SELECT ocr_text FROM $OCR_TABLE WHERE path = ?", arrayOf(path)).use { cursor ->
+            return if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+    }
+
+    fun findByText(query: String, limit: Int): List<String> {
+        val db = helper!!.readableDatabase
+        val paths = mutableListOf<String>()
+        db.rawQuery(
+            "SELECT path FROM $OCR_TABLE WHERE ocr_text LIKE ? AND ocr_text IS NOT NULL AND ocr_text != '' LIMIT ?",
+            arrayOf("%$query%", limit.toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) paths.add(cursor.getString(0))
+        }
+        return paths
+    }
+
+    // --- Embedding similarity ---
 
     fun findSimilar(query: FloatArray, topK: Int): List<String> {
         val db = helper!!.readableDatabase
@@ -96,18 +149,15 @@ object VectorStore {
 
     private class DbHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
         override fun onCreate(db: SQLiteDatabase) {
-            db.execSQL("""
-                CREATE TABLE $TABLE (
-                    hash TEXT PRIMARY KEY,
-                    path TEXT NOT NULL,
-                    embedding BLOB NOT NULL
-                )
-            """.trimIndent())
+            db.execSQL("CREATE TABLE $TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, embedding BLOB NOT NULL)")
+            db.execSQL("CREATE TABLE $OCR_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, ocr_text TEXT)")
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            db.execSQL("DROP TABLE IF EXISTS $TABLE")
-            onCreate(db)
+            if (oldVersion < 2) {
+                // Preserve existing embeddings — only add the new OCR table
+                db.execSQL("CREATE TABLE IF NOT EXISTS $OCR_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, ocr_text TEXT)")
+            }
         }
     }
 }

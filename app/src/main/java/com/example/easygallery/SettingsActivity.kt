@@ -140,6 +140,58 @@ class SettingsActivity : AppCompatActivity() {
                 ModelManager.cancelDownload()
             }
         }
+
+        // --- OCR section views ---
+        val ocrSwitch = findViewById<SwitchMaterial>(R.id.ocrSwitch)
+        val ocrSection = findViewById<View>(R.id.ocrSection)
+        val ocrProgressBar = findViewById<LinearProgressIndicator>(R.id.ocrProgressBar)
+        val ocrProgressText = findViewById<TextView>(R.id.ocrProgressText)
+        val pauseResumeOcrButton = findViewById<MaterialButton>(R.id.pauseResumeOcrButton)
+
+        fun updateOcrText(processed: Int, failed: Int, total: Int) {
+            val failedSuffix = if (failed > 0) " ($failed failed)" else ""
+            ocrProgressText.text = "$processed / $total images processed$failedSuffix"
+            if (total > 0) {
+                ocrProgressBar.max = total
+                ocrProgressBar.progress = processed
+            }
+        }
+
+        OcrManager.processed.observe(this) { processed ->
+            updateOcrText(processed, OcrManager.failed.value ?: 0, OcrManager.total.value ?: 0)
+        }
+        OcrManager.failed.observe(this) { failed ->
+            updateOcrText(OcrManager.processed.value ?: 0, failed, OcrManager.total.value ?: 0)
+        }
+        OcrManager.total.observe(this) { total ->
+            updateOcrText(OcrManager.processed.value ?: 0, OcrManager.failed.value ?: 0, total)
+        }
+        OcrManager.isRunning.observe(this) { running ->
+            pauseResumeOcrButton.text = if (running) "Pause" else "Resume"
+        }
+
+        pauseResumeOcrButton.setOnClickListener {
+            if (OcrManager.isRunning.value == true) OcrManager.pause()
+            else OcrManager.start(this)
+        }
+
+        ocrSwitch.isChecked = prefs.getBoolean("ocr_enabled", false)
+        ocrSection.visibility = if (ocrSwitch.isChecked) View.VISIBLE else View.GONE
+        if (ocrSwitch.isChecked) {
+            OcrManager.loadProgress(this)
+            OcrManager.start(this)
+        }
+
+        ocrSwitch.setOnCheckedChangeListener { _, checked ->
+            prefs.edit().putBoolean("ocr_enabled", checked).apply()
+            ocrSection.visibility = if (checked) View.VISIBLE else View.GONE
+            if (checked) {
+                OcrManager.loadProgress(this)
+                OcrManager.start(this)
+            } else {
+                OcrManager.pause()
+            }
+        }
     }
 
     override fun onSupportNavigateUp(): Boolean {

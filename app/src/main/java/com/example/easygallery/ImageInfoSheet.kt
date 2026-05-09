@@ -8,7 +8,11 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.exifinterface.media.ExifInterface
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 class ImageInfoSheet : BottomSheetDialogFragment() {
@@ -70,6 +74,18 @@ class ImageInfoSheet : BottomSheetDialogFragment() {
             }
         } catch (_: Exception) {
             addRow(container, "EXIF", "Not available")
+        }
+
+        if (path.isNotBlank()) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                val text = withContext(Dispatchers.IO) {
+                    VectorStore.init(requireContext())
+                    VectorStore.getOcrText(path)
+                }
+                if (!text.isNullOrBlank()) {
+                    addRow(container, "Extracted text", text)
+                }
+            }
         }
     }
 
