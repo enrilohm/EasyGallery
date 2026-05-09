@@ -10,9 +10,10 @@ import java.nio.ByteOrder
 object VectorStore {
 
     private const val DB_NAME = "embeddings.db"
-    private const val DB_VERSION = 2
+    private const val DB_VERSION = 3
     private const val TABLE = "embeddings"
     private const val OCR_TABLE = "ocr"
+    private const val OBJECTS_TABLE = "objects"
 
     private var helper: DbHelper? = null
 
@@ -102,6 +103,94 @@ object VectorStore {
         return paths
     }
 
+    // --- Objects ---
+
+    fun hasObjects(hash: String): Boolean {
+        val db = helper!!.readableDatabase
+        db.rawQuery("SELECT 1 FROM $OBJECTS_TABLE WHERE hash = ?", arrayOf(hash)).use {
+            return it.moveToFirst()
+        }
+    }
+
+    fun insertObjects(hash: String, path: String, labels: List<String>) {
+        val cv = ContentValues().apply {
+            put("hash", hash)
+            put("path", path)
+            put("labels", labels.joinToString(","))
+        }
+        helper!!.writableDatabase
+            .insertWithOnConflict(OBJECTS_TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE)
+    }
+
+    fun updateObjectsPath(hash: String, path: String) {
+        val cv = ContentValues().apply { put("path", path) }
+        helper!!.writableDatabase.update(OBJECTS_TABLE, cv, "hash = ?", arrayOf(hash))
+    }
+
+    fun objectsCount(): Int {
+        val db = helper!!.readableDatabase
+        db.rawQuery("SELECT COUNT(*) FROM $OBJECTS_TABLE", null).use {
+            return if (it.moveToFirst()) it.getInt(0) else 0
+        }
+    }
+
+    fun getObjectLabels(path: String): List<String> {
+        val db = helper!!.readableDatabase
+        db.rawQuery("SELECT labels FROM $OBJECTS_TABLE WHERE path = ?", arrayOf(path)).use { cursor ->
+            if (!cursor.moveToFirst()) return emptyList()
+            val labels = cursor.getString(0) ?: return emptyList()
+            return labels.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        }
+    }
+
+    fun getDistinctObjectLabels(): List<Pair<String, Int>> {
+        val db = helper!!.readableDatabase
+        val counts = mutableMapOf<String, Int>()
+        db.rawQuery("SELECT labels FROM $OBJECTS_TABLE WHERE labels IS NOT NULL AND labels != ''", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                val row = cursor.getString(0) ?: continue
+                row.split(",").map { it.trim() }.filter { it.isNotEmpty() }.forEach { label ->
+                    counts[label] = (counts[label] ?: 0) + 1
+                }
+            }
+        }
+        return counts.entries.sortedByDescending { it.value }.map { it.key to it.value }
+    }
+
+    fun getExamplePath(label: String): String? {
+        val db = helper!!.readableDatabase
+        db.rawQuery(
+            "SELECT path FROM $OBJECTS_TABLE WHERE ',' || labels || ',' LIKE '%,' || ? || ',%' AND labels != '' LIMIT 1",
+            arrayOf(label)
+        ).use { cursor ->
+            return if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+    }
+
+    fun getImagePathsByLabel(label: String): List<String> {
+        val db = helper!!.readableDatabase
+        val paths = mutableListOf<String>()
+        db.rawQuery(
+            "SELECT path FROM $OBJECTS_TABLE WHERE ',' || labels || ',' LIKE '%,' || ? || ',%' AND labels != ''",
+            arrayOf(label)
+        ).use { cursor ->
+            while (cursor.moveToNext()) paths.add(cursor.getString(0))
+        }
+        return paths
+    }
+
+    fun findByLabel(query: String, limit: Int): List<String> {
+        val db = helper!!.readableDatabase
+        val paths = mutableListOf<String>()
+        db.rawQuery(
+            "SELECT path FROM $OBJECTS_TABLE WHERE ',' || labels || ',' LIKE '%,' || ? || ',%' AND labels != '' LIMIT ?",
+            arrayOf(query, limit.toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) paths.add(cursor.getString(0))
+        }
+        return paths
+    }
+
     // --- Embedding similarity ---
 
     fun findSimilar(query: FloatArray, topK: Int): List<String> {
@@ -151,12 +240,15 @@ object VectorStore {
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL("CREATE TABLE $TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, embedding BLOB NOT NULL)")
             db.execSQL("CREATE TABLE $OCR_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, ocr_text TEXT)")
+            db.execSQL("CREATE TABLE $OBJECTS_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, labels TEXT)")
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
             if (oldVersion < 2) {
-                // Preserve existing embeddings — only add the new OCR table
                 db.execSQL("CREATE TABLE IF NOT EXISTS $OCR_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, ocr_text TEXT)")
+            }
+            if (oldVersion < 3) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS $OBJECTS_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, labels TEXT)")
             }
         }
     }

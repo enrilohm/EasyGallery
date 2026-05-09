@@ -192,6 +192,119 @@ class SettingsActivity : AppCompatActivity() {
                 OcrManager.pause()
             }
         }
+
+        // --- Object Detection section views ---
+        val objectDetectionSwitch = findViewById<SwitchMaterial>(R.id.objectDetectionSwitch)
+        val objectDetectionSection = findViewById<View>(R.id.objectDetectionSection)
+        val yoloProgressBar = findViewById<LinearProgressIndicator>(R.id.yoloProgressBar)
+        val yoloStatusText = findViewById<TextView>(R.id.yoloStatusText)
+        val yoloActionButton = findViewById<MaterialButton>(R.id.yoloActionButton)
+        val objectProcessingSection = findViewById<View>(R.id.objectProcessingSection)
+        val objectProgressBar = findViewById<LinearProgressIndicator>(R.id.objectProgressBar)
+        val objectProgressText = findViewById<TextView>(R.id.objectProgressText)
+        val pauseResumeObjectButton = findViewById<MaterialButton>(R.id.pauseResumeObjectButton)
+
+        // --- Yolo model state observer ---
+        YoloModelManager.state.observe(this) { state ->
+            when (state) {
+                is YoloModelManager.State.NotDownloaded -> {
+                    yoloProgressBar.visibility = View.GONE
+                    yoloStatusText.text = "Not downloaded (~13 MB)"
+                    yoloActionButton.text = "Download"
+                    yoloActionButton.isEnabled = true
+                    objectProcessingSection.visibility = View.GONE
+                }
+                is YoloModelManager.State.Downloading -> {
+                    yoloProgressBar.visibility = View.VISIBLE
+                    if (state.totalMb > 0) {
+                        yoloProgressBar.isIndeterminate = false
+                        yoloProgressBar.max = state.totalMb.toInt()
+                        yoloProgressBar.progress = state.downloadedMb.toInt()
+                        yoloStatusText.text = "%.1f / %.1f MB".format(state.downloadedMb, state.totalMb)
+                    } else {
+                        yoloProgressBar.isIndeterminate = true
+                        yoloStatusText.text = "%.1f MB…".format(state.downloadedMb)
+                    }
+                    yoloActionButton.text = "Cancel"
+                    yoloActionButton.isEnabled = true
+                    objectProcessingSection.visibility = View.GONE
+                }
+                is YoloModelManager.State.Ready -> {
+                    yoloProgressBar.visibility = View.GONE
+                    yoloStatusText.text = "Ready"
+                    yoloActionButton.text = "Delete"
+                    yoloActionButton.isEnabled = true
+                    if (objectDetectionSwitch.isChecked) {
+                        objectProcessingSection.visibility = View.VISIBLE
+                        ObjectDetectionManager.loadProgress(this)
+                        ObjectDetectionManager.start(this)
+                    }
+                }
+                is YoloModelManager.State.Failed -> {
+                    yoloProgressBar.visibility = View.GONE
+                    yoloStatusText.text = "Failed: ${state.message}"
+                    yoloActionButton.text = "Retry"
+                    yoloActionButton.isEnabled = true
+                    objectProcessingSection.visibility = View.GONE
+                }
+            }
+        }
+
+        yoloActionButton.setOnClickListener {
+            when (YoloModelManager.state.value) {
+                is YoloModelManager.State.NotDownloaded, is YoloModelManager.State.Failed ->
+                    YoloModelManager.download(this)
+                is YoloModelManager.State.Downloading ->
+                    YoloModelManager.cancelDownload()
+                is YoloModelManager.State.Ready ->
+                    YoloModelManager.delete(this)
+                else -> {}
+            }
+        }
+
+        // --- Object Detection processing observers ---
+        fun updateObjectText(processed: Int, failed: Int, total: Int) {
+            val failedSuffix = if (failed > 0) " ($failed failed)" else ""
+            objectProgressText.text = "$processed / $total images processed$failedSuffix"
+            if (total > 0) {
+                objectProgressBar.max = total
+                objectProgressBar.progress = processed
+            }
+        }
+
+        ObjectDetectionManager.processed.observe(this) { processed ->
+            updateObjectText(processed, ObjectDetectionManager.failed.value ?: 0, ObjectDetectionManager.total.value ?: 0)
+        }
+        ObjectDetectionManager.failed.observe(this) { failed ->
+            updateObjectText(ObjectDetectionManager.processed.value ?: 0, failed, ObjectDetectionManager.total.value ?: 0)
+        }
+        ObjectDetectionManager.total.observe(this) { total ->
+            updateObjectText(ObjectDetectionManager.processed.value ?: 0, ObjectDetectionManager.failed.value ?: 0, total)
+        }
+        ObjectDetectionManager.isRunning.observe(this) { running ->
+            pauseResumeObjectButton.text = if (running) "Pause" else "Resume"
+        }
+
+        pauseResumeObjectButton.setOnClickListener {
+            if (ObjectDetectionManager.isRunning.value == true) ObjectDetectionManager.pause()
+            else ObjectDetectionManager.start(this)
+        }
+
+        // --- Object Detection switch ---
+        objectDetectionSwitch.isChecked = prefs.getBoolean("object_detection_enabled", false)
+        objectDetectionSection.visibility = if (objectDetectionSwitch.isChecked) View.VISIBLE else View.GONE
+        if (objectDetectionSwitch.isChecked) YoloModelManager.checkState(this)
+
+        objectDetectionSwitch.setOnCheckedChangeListener { _, checked ->
+            prefs.edit().putBoolean("object_detection_enabled", checked).apply()
+            objectDetectionSection.visibility = if (checked) View.VISIBLE else View.GONE
+            if (checked) {
+                YoloModelManager.checkState(this)
+            } else {
+                ObjectDetectionManager.pause()
+                YoloModelManager.cancelDownload()
+            }
+        }
     }
 
     override fun onSupportNavigateUp(): Boolean {

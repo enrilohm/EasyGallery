@@ -30,7 +30,11 @@ class MainActivity : AppCompatActivity() {
         viewPager.adapter = GalleryPagerAdapter(this)
 
         TabLayoutMediator(findViewById(R.id.tabLayout), viewPager) { tab, position ->
-            tab.text = if (position == 0) "Gallery" else "Search"
+            tab.text = when (position) {
+                0 -> "Gallery"
+                1 -> "Search"
+                else -> "Objects"
+            }
         }.attach()
 
         requestPermissionAndLoad()

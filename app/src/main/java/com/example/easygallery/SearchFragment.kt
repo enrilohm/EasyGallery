@@ -73,18 +73,23 @@ class SearchFragment : Fragment() {
                 val paths = withContext(Dispatchers.IO) {
                     VectorStore.init(ctx)
 
-                    // Text hits first (OCR)
+                    // 1. OCR text hits
                     val textHits = VectorStore.findByText(query, limit = 5)
 
-                    // Fill remaining slots with embedding similarity
-                    val embeddingHits = if (textHits.size < 5) {
+                    // 2. Object label hits
+                    val labelHits = if (textHits.size < 5)
+                        VectorStore.findByLabel(query, limit = 5) else emptyList()
+
+                    // 3. CLIP embedding similarity for remaining slots
+                    val soFar = (textHits + labelHits.filter { it !in textHits })
+                    val embeddingHits = if (soFar.size < 5) {
                         ClipTextEncoder.load(ctx)
                         val embedding = ClipTextEncoder.encode(query)
                         if (embedding != null) VectorStore.findSimilar(embedding, topK = 5) else emptyList()
                     } else emptyList()
 
-                    // Merge: text hits first, no duplicates, cap at 5
-                    (textHits + embeddingHits.filter { it !in textHits }).take(5)
+                    // Merge in priority order, no duplicates, cap at 5
+                    (soFar + embeddingHits.filter { it !in soFar }).take(5)
                 }
 
                 val results = paths.map { path ->

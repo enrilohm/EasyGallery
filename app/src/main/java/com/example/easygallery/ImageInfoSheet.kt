@@ -78,13 +78,13 @@ class ImageInfoSheet : BottomSheetDialogFragment() {
 
         if (path.isNotBlank()) {
             viewLifecycleOwner.lifecycleScope.launch {
-                val text = withContext(Dispatchers.IO) {
-                    VectorStore.init(requireContext())
-                    VectorStore.getOcrText(path)
+                val ctx = requireContext()
+                val (ocrText, labels) = withContext(Dispatchers.IO) {
+                    VectorStore.init(ctx)
+                    VectorStore.getOcrText(path) to VectorStore.getObjectLabels(path)
                 }
-                if (!text.isNullOrBlank()) {
-                    addRow(container, "Extracted text", text)
-                }
+                if (!ocrText.isNullOrBlank()) addRow(container, "Extracted text", ocrText)
+                if (labels.isNotEmpty()) addRow(container, "Detected objects", labels.joinToString(", "))
             }
         }
     }
