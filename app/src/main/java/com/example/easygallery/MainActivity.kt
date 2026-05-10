@@ -10,9 +10,12 @@ import android.view.MenuItem
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import androidx.viewpager2.widget.ViewPager2
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
@@ -38,6 +41,14 @@ class MainActivity : AppCompatActivity() {
         }.attach()
 
         requestPermissionAndLoad()
+
+        val clipEnabled = getSharedPreferences("gallery_prefs", MODE_PRIVATE)
+            .getBoolean("clip_search_enabled", false)
+        if (clipEnabled) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                ClipTextEncoder.load(applicationContext)
+            }
+        }
     }
 
     override fun onSupportNavigateUp(): Boolean {
