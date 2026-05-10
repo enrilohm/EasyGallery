@@ -36,6 +36,7 @@ class MapFragment : Fragment() {
             map.setTileSource(TileSourceFactory.MAPNIK)
             map.isTilesScaledToDpi = true
             map.setMultiTouchControls(true)
+            map.isVerticalMapRepetitionEnabled = false
             map.controller.setZoom(3.0)
             map.controller.setCenter(GeoPoint(20.0, 0.0))
         }

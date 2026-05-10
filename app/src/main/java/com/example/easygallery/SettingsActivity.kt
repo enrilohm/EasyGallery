@@ -4,6 +4,8 @@ import android.os.Bundle
 import android.view.View
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.slider.Slider
@@ -17,6 +19,13 @@ class SettingsActivity : AppCompatActivity() {
 
         setSupportActionBar(findViewById(R.id.toolbar))
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
+
+        val scrollView = findViewById<androidx.core.widget.NestedScrollView>(R.id.settingsScrollView)
+        ViewCompat.setOnApplyWindowInsetsListener(scrollView) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, bars.bottom)
+            insets
+        }
 
         val prefs = getSharedPreferences("gallery_prefs", MODE_PRIVATE)
 
@@ -209,7 +218,7 @@ class SettingsActivity : AppCompatActivity() {
             when (state) {
                 is YoloModelManager.State.NotDownloaded -> {
                     yoloProgressBar.visibility = View.GONE
-                    yoloStatusText.text = "Not downloaded (~13 MB)"
+                    yoloStatusText.text = "Not downloaded (~45 MB)"
                     yoloActionButton.text = "Download"
                     yoloActionButton.isEnabled = true
                     objectProcessingSection.visibility = View.GONE

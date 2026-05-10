@@ -23,8 +23,8 @@ object YoloModelManager {
 
     private const val TAG = "YoloModelManager"
     private const val MODEL_URL =
-        "https://huggingface.co/SpotLab/YOLOv8Detection/resolve/3005c6751fb19cdeb6b10c066185908faf66a097/yolov8n.onnx?download=true"
-    private const val MODEL_FILE = "yolov8n.onnx"
+        "https://huggingface.co/deepghs/yolos/resolve/main/yolov8s/model.onnx"
+    private const val MODEL_FILE = "yolov8s.onnx"
 
     sealed class State {
         object NotDownloaded : State()
