@@ -10,7 +10,7 @@ import java.nio.ByteOrder
 object VectorStore {
 
     private const val DB_NAME = "embeddings.db"
-    private const val DB_VERSION = 4
+    private const val DB_VERSION = 5
     private const val TABLE = "embeddings"
     private const val OCR_TABLE = "ocr"
     private const val OBJECTS_TABLE = "objects"
@@ -21,6 +21,13 @@ object VectorStore {
     fun init(context: Context) {
         if (helper == null) {
             helper = DbHelper(context.applicationContext)
+        }
+    }
+
+    fun hasEmbeddingPath(path: String): Boolean {
+        val db = helper!!.readableDatabase
+        db.rawQuery("SELECT 1 FROM $TABLE WHERE path = ?", arrayOf(path)).use {
+            return it.moveToFirst()
         }
     }
 
@@ -55,6 +62,13 @@ object VectorStore {
     }
 
     // --- OCR ---
+
+    fun hasOcrPath(path: String): Boolean {
+        val db = helper!!.readableDatabase
+        db.rawQuery("SELECT 1 FROM $OCR_TABLE WHERE path = ?", arrayOf(path)).use {
+            return it.moveToFirst()
+        }
+    }
 
     fun hasOcr(hash: String): Boolean {
         val db = helper!!.readableDatabase
@@ -105,6 +119,13 @@ object VectorStore {
     }
 
     // --- Objects ---
+
+    fun hasObjectsPath(path: String): Boolean {
+        val db = helper!!.readableDatabase
+        db.rawQuery("SELECT 1 FROM $OBJECTS_TABLE WHERE path = ?", arrayOf(path)).use {
+            return it.moveToFirst()
+        }
+    }
 
     fun hasObjects(hash: String): Boolean {
         val db = helper!!.readableDatabase
@@ -304,6 +325,9 @@ object VectorStore {
             db.execSQL("CREATE TABLE $OBJECTS_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, labels TEXT)")
             db.execSQL("CREATE TABLE $FACES_TABLE (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, face_index INTEGER NOT NULL, embedding BLOB NOT NULL)")
             db.execSQL("CREATE UNIQUE INDEX idx_faces_path_face ON $FACES_TABLE (path, face_index)")
+            db.execSQL("CREATE INDEX idx_embeddings_path ON $TABLE (path)")
+            db.execSQL("CREATE INDEX idx_ocr_path ON $OCR_TABLE (path)")
+            db.execSQL("CREATE INDEX idx_objects_path ON $OBJECTS_TABLE (path)")
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -316,6 +340,11 @@ object VectorStore {
             if (oldVersion < 4) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS $FACES_TABLE (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, face_index INTEGER NOT NULL, embedding BLOB NOT NULL)")
                 db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_faces_path_face ON $FACES_TABLE (path, face_index)")
+            }
+            if (oldVersion < 5) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_embeddings_path ON $TABLE (path)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_ocr_path ON $OCR_TABLE (path)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_objects_path ON $OBJECTS_TABLE (path)")
             }
         }
     }

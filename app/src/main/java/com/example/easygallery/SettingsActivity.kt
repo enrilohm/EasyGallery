@@ -1,9 +1,14 @@
 package com.example.easygallery
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.button.MaterialButton
@@ -25,6 +30,15 @@ class SettingsActivity : AppCompatActivity() {
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, bars.bottom)
             insets
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0
+            )
         }
 
         val prefs = getSharedPreferences("gallery_prefs", MODE_PRIVATE)
@@ -82,6 +96,7 @@ class SettingsActivity : AppCompatActivity() {
                         embeddingSection.visibility = View.VISIBLE
                         EmbeddingManager.loadProgress(this)
                         EmbeddingManager.start(this)
+                        IndexingForegroundService.start(this)
                     }
                 }
                 is ModelManager.State.Failed -> {
@@ -131,7 +146,7 @@ class SettingsActivity : AppCompatActivity() {
 
         pauseResumeButton.setOnClickListener {
             if (EmbeddingManager.isRunning.value == true) EmbeddingManager.pause()
-            else EmbeddingManager.start(this)
+            else { EmbeddingManager.start(this); IndexingForegroundService.start(this) }
         }
 
         // --- CLIP switch ---
@@ -181,7 +196,7 @@ class SettingsActivity : AppCompatActivity() {
 
         pauseResumeOcrButton.setOnClickListener {
             if (OcrManager.isRunning.value == true) OcrManager.pause()
-            else OcrManager.start(this)
+            else { OcrManager.start(this); IndexingForegroundService.start(this) }
         }
 
         ocrSwitch.isChecked = prefs.getBoolean("ocr_enabled", false)
@@ -189,6 +204,7 @@ class SettingsActivity : AppCompatActivity() {
         if (ocrSwitch.isChecked) {
             OcrManager.loadProgress(this)
             OcrManager.start(this)
+            IndexingForegroundService.start(this)
         }
 
         ocrSwitch.setOnCheckedChangeListener { _, checked ->
@@ -197,6 +213,7 @@ class SettingsActivity : AppCompatActivity() {
             if (checked) {
                 OcrManager.loadProgress(this)
                 OcrManager.start(this)
+                IndexingForegroundService.start(this)
             } else {
                 OcrManager.pause()
             }
@@ -247,6 +264,7 @@ class SettingsActivity : AppCompatActivity() {
                         objectProcessingSection.visibility = View.VISIBLE
                         ObjectDetectionManager.loadProgress(this)
                         ObjectDetectionManager.start(this)
+                        IndexingForegroundService.start(this)
                     }
                 }
                 is YoloModelManager.State.Failed -> {
@@ -296,7 +314,7 @@ class SettingsActivity : AppCompatActivity() {
 
         pauseResumeObjectButton.setOnClickListener {
             if (ObjectDetectionManager.isRunning.value == true) ObjectDetectionManager.pause()
-            else ObjectDetectionManager.start(this)
+            else { ObjectDetectionManager.start(this); IndexingForegroundService.start(this) }
         }
 
         // --- Object Detection switch ---
@@ -359,6 +377,7 @@ class SettingsActivity : AppCompatActivity() {
                         faceProcessingSection.visibility = View.VISIBLE
                         FaceIndexManager.loadProgress(this)
                         FaceIndexManager.start(this)
+                        IndexingForegroundService.start(this)
                     }
                 }
                 is FaceModelManager.State.Failed -> {
@@ -403,7 +422,7 @@ class SettingsActivity : AppCompatActivity() {
 
         pauseResumeFaceButton.setOnClickListener {
             if (FaceIndexManager.isRunning.value == true) FaceIndexManager.stop()
-            else FaceIndexManager.start(this)
+            else { FaceIndexManager.start(this); IndexingForegroundService.start(this) }
         }
 
         faceDetectionSwitch.isChecked = prefs.getBoolean("face_detection_enabled", false)

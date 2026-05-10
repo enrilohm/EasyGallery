@@ -8,8 +8,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import java.util.concurrent.atomic.AtomicInteger
 
 object FaceIndexManager {
 
@@ -40,25 +46,33 @@ object FaceIndexManager {
             _total.postValue(allPaths.size)
             _processed.postValue(allPaths.size - pending.size)
 
-            var count = allPaths.size - pending.size
-            for (path in pending) {
-                if (!isActive) break
-                try {
-                    val faces = FaceDetector.detect(path)
-                    faces.forEach { face ->
-                        val embedding = FaceEncoder.encode(face.crop)
-                        if (embedding != null) {
-                            VectorStore.insertFace(path, face.faceIndex, embedding)
+            val count = AtomicInteger(allPaths.size - pending.size)
+            val parallelism = minOf(4, Runtime.getRuntime().availableProcessors())
+            val semaphore = Semaphore(parallelism)
+
+            coroutineScope {
+                pending.map { path ->
+                    async {
+                        if (!isActive) return@async
+                        semaphore.withPermit {
+                            try {
+                                val faces = FaceDetector.detect(path)
+                                faces.forEach { face ->
+                                    val embedding = FaceEncoder.encode(face.crop)
+                                    if (embedding != null) {
+                                        VectorStore.insertFace(path, face.faceIndex, embedding)
+                                    }
+                                }
+                                if (faces.isEmpty()) {
+                                    VectorStore.insertFace(path, -1, FloatArray(0))
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.e(TAG, "Failed $path: ${e.message}")
+                            }
+                            _processed.postValue(count.incrementAndGet())
                         }
                     }
-                    if (faces.isEmpty()) {
-                        VectorStore.insertFace(path, -1, FloatArray(0))
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e(TAG, "Failed $path: ${e.message}")
-                }
-                count++
-                _processed.postValue(count)
+                }.awaitAll()
             }
             _isRunning.postValue(false)
         }

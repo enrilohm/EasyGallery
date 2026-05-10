@@ -9,11 +9,17 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.io.File
 import java.security.MessageDigest
+import java.util.Collections
+import java.util.concurrent.atomic.AtomicInteger
 
 object ObjectDetectionManager {
 
@@ -56,51 +62,54 @@ object ObjectDetectionManager {
         YoloDetector.load(appContext)
 
         val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val skipPaths = prefs.getStringSet(KEY_SKIP, emptySet())!!.toMutableSet()
+        val skipPaths = Collections.synchronizedSet(prefs.getStringSet(KEY_SKIP, emptySet())!!.toMutableSet())
 
         val paths = queryImagePaths(appContext)
         _total.postValue(paths.size)
         _failed.postValue(skipPaths.size)
         _processed.postValue(VectorStore.objectsCount() + skipPaths.size)
 
-        var done = 0
+        val done = AtomicInteger(0)
+        val parallelism = minOf(4, Runtime.getRuntime().availableProcessors())
+        val semaphore = Semaphore(parallelism)
 
-        for (path in paths) {
-            if (!currentCoroutineContext().isActive) break
-            if (path in skipPaths) { done++; _processed.postValue(done); continue }
-
-            val file = File(path)
-            if (!file.exists()) {
-                addToSkip(path, skipPaths, prefs)
-                done++; _processed.postValue(done); _failed.postValue(skipPaths.size)
-                continue
-            }
-
-            val hash = md5(file)
-            if (hash == null) {
-                addToSkip(path, skipPaths, prefs)
-                done++; _processed.postValue(done); _failed.postValue(skipPaths.size)
-                continue
-            }
-
-            if (VectorStore.hasObjects(hash)) {
-                VectorStore.updateObjectsPath(hash, path)
-                done++; _processed.postValue(done)
-                continue
-            }
-
-            val labels = try {
-                YoloDetector.detect(path)
-            } catch (t: Throwable) {
-                android.util.Log.w(TAG, "Detection failed: $path — ${t.message}")
-                addToSkip(path, skipPaths, prefs)
-                done++; _processed.postValue(done); _failed.postValue(skipPaths.size)
-                continue
-            }
-
-            VectorStore.insertObjects(hash, path, labels)
-            done++
-            _processed.postValue(done)
+        coroutineScope {
+            paths.map { path ->
+                async {
+                    if (!isActive) return@async
+                    semaphore.withPermit {
+                        if (path in skipPaths) {
+                            _processed.postValue(done.incrementAndGet()); return@withPermit
+                        }
+                        val file = File(path)
+                        if (!file.exists()) {
+                            addToSkip(path, skipPaths, prefs)
+                            _processed.postValue(done.incrementAndGet()); _failed.postValue(skipPaths.size); return@withPermit
+                        }
+                        if (VectorStore.hasObjectsPath(path)) {
+                            _processed.postValue(done.incrementAndGet()); return@withPermit
+                        }
+                        val hash = md5(file)
+                        if (hash == null) {
+                            addToSkip(path, skipPaths, prefs)
+                            _processed.postValue(done.incrementAndGet()); _failed.postValue(skipPaths.size); return@withPermit
+                        }
+                        if (VectorStore.hasObjects(hash)) {
+                            VectorStore.updateObjectsPath(hash, path)
+                            _processed.postValue(done.incrementAndGet()); return@withPermit
+                        }
+                        val labels = try {
+                            YoloDetector.detect(path)
+                        } catch (t: Throwable) {
+                            android.util.Log.w(TAG, "Detection failed: $path — ${t.message}")
+                            addToSkip(path, skipPaths, prefs)
+                            _processed.postValue(done.incrementAndGet()); _failed.postValue(skipPaths.size); return@withPermit
+                        }
+                        VectorStore.insertObjects(hash, path, labels)
+                        _processed.postValue(done.incrementAndGet())
+                    }
+                }
+            }.awaitAll()
         }
     }
 
@@ -123,6 +132,7 @@ object ObjectDetectionManager {
         }
     }
 
+    @Synchronized
     private fun addToSkip(path: String, skipPaths: MutableSet<String>, prefs: SharedPreferences) {
         skipPaths.add(path)
         prefs.edit().putStringSet(KEY_SKIP, HashSet(skipPaths)).apply()
