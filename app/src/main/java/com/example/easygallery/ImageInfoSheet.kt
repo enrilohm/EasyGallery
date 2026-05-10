@@ -27,60 +27,64 @@ class ImageInfoSheet : BottomSheetDialogFragment() {
 
         addRow(container, "Path", path)
 
-        try {
-            requireContext().contentResolver.openInputStream(uri)?.use { stream ->
-                val exif = ExifInterface(stream)
+        viewLifecycleOwner.lifecycleScope.launch {
+            val ctx = requireContext()
 
-                listOfNotNull(
-                    exif.getAttribute(ExifInterface.TAG_MAKE),
-                    exif.getAttribute(ExifInterface.TAG_MODEL)
-                ).joinToString(" ").takeIf { it.isNotBlank() }
-                    ?.let { addRow(container, "Camera", it) }
+            val exifRows = withContext(Dispatchers.IO) {
+                try {
+                    val exif = if (path.isNotBlank()) ExifInterface(path)
+                               else ctx.contentResolver.openInputStream(uri)!!.use { ExifInterface(it) }
+                    buildList {
+                        listOfNotNull(
+                            exif.getAttribute(ExifInterface.TAG_MAKE),
+                            exif.getAttribute(ExifInterface.TAG_MODEL)
+                        ).joinToString(" ").takeIf { it.isNotBlank() }
+                            ?.let { add("Camera" to it) }
 
-                (exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
-                    ?: exif.getAttribute(ExifInterface.TAG_DATETIME))
-                    ?.let { addRow(container, "Date", it) }
+                        (exif.getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL)
+                            ?: exif.getAttribute(ExifInterface.TAG_DATETIME))
+                            ?.let { add("Date" to it) }
 
-                val w = exif.getAttribute(ExifInterface.TAG_IMAGE_WIDTH)
-                val h = exif.getAttribute(ExifInterface.TAG_IMAGE_LENGTH)
-                if (w != null && h != null) addRow(container, "Dimensions", "$w × $h px")
+                        val w = exif.getAttribute(ExifInterface.TAG_IMAGE_WIDTH)
+                        val h = exif.getAttribute(ExifInterface.TAG_IMAGE_LENGTH)
+                        if (w != null && h != null) add("Dimensions" to "$w × $h px")
 
-                val exposure = exif.getAttributeDouble(ExifInterface.TAG_EXPOSURE_TIME, 0.0)
-                if (exposure > 0) {
-                    val label = if (exposure < 1) "1/${(1.0 / exposure).roundToInt()}s" else "${exposure}s"
-                    addRow(container, "Exposure", label)
-                }
+                        val exposure = exif.getAttributeDouble(ExifInterface.TAG_EXPOSURE_TIME, 0.0)
+                        if (exposure > 0) {
+                            val label = if (exposure < 1) "1/${(1.0 / exposure).roundToInt()}s" else "${exposure}s"
+                            add("Exposure" to label)
+                        }
 
-                val aperture = exif.getAttributeDouble(ExifInterface.TAG_F_NUMBER, 0.0)
-                if (aperture > 0) addRow(container, "Aperture", "ƒ/%.1f".format(aperture))
+                        val aperture = exif.getAttributeDouble(ExifInterface.TAG_F_NUMBER, 0.0)
+                        if (aperture > 0) add("Aperture" to "ƒ/%.1f".format(aperture))
 
-                exif.getAttribute(ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY)
-                    ?.let { addRow(container, "ISO", it) }
+                        exif.getAttribute(ExifInterface.TAG_PHOTOGRAPHIC_SENSITIVITY)
+                            ?.let { add("ISO" to it) }
 
-                val focal = exif.getAttributeDouble(ExifInterface.TAG_FOCAL_LENGTH, 0.0)
-                if (focal > 0) addRow(container, "Focal length", "%.1f mm".format(focal))
+                        val focal = exif.getAttributeDouble(ExifInterface.TAG_FOCAL_LENGTH, 0.0)
+                        if (focal > 0) add("Focal length" to "%.1f mm".format(focal))
 
-                exif.latLong?.let { (lat, lon) ->
-                    addRow(container, "GPS", "%.6f, %.6f".format(lat, lon))
-                }
+                        exif.latLong?.let { (lat, lon) ->
+                            add("GPS" to "%.6f, %.6f".format(lat, lon))
+                        }
 
-                exif.getAttribute(ExifInterface.TAG_FLASH)?.toIntOrNull()?.let { flash ->
-                    addRow(container, "Flash", if (flash and 1 == 1) "Fired" else "Did not fire")
-                }
+                        exif.getAttribute(ExifInterface.TAG_FLASH)?.toIntOrNull()?.let { flash ->
+                            add("Flash" to if (flash and 1 == 1) "Fired" else "Did not fire")
+                        }
 
-                exif.getAttribute(ExifInterface.TAG_WHITE_BALANCE)?.toIntOrNull()?.let { wb ->
-                    addRow(container, "White balance", if (wb == 0) "Auto" else "Manual")
+                        exif.getAttribute(ExifInterface.TAG_WHITE_BALANCE)?.toIntOrNull()?.let { wb ->
+                            add("White balance" to if (wb == 0) "Auto" else "Manual")
+                        }
+                    }
+                } catch (_: Exception) {
+                    listOf("EXIF" to "Not available")
                 }
             }
-        } catch (_: Exception) {
-            addRow(container, "EXIF", "Not available")
-        }
+            exifRows.forEach { (label, value) -> addRow(container, label, value) }
 
-        if (path.isNotBlank()) {
-            viewLifecycleOwner.lifecycleScope.launch {
-                val ctx = requireContext()
+            if (path.isNotBlank()) {
+                VectorStore.init(ctx)
                 val (ocrText, labels) = withContext(Dispatchers.IO) {
-                    VectorStore.init(ctx)
                     VectorStore.getOcrText(path) to VectorStore.getObjectLabels(path)
                 }
                 if (!ocrText.isNullOrBlank()) addRow(container, "Extracted text", ocrText)

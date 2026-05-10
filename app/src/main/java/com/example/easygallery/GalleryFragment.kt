@@ -19,7 +19,7 @@ class GalleryFragment : Fragment() {
     private lateinit var layoutManager: GridLayoutManager
     private lateinit var recyclerView: RecyclerView
 
-    private var currentPath: String = ""
+    private var currentPath = ""
     private val pathStack = ArrayDeque<String>()
 
     private val backCallback = object : OnBackPressedCallback(false) {

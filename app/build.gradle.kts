@@ -49,6 +49,8 @@ dependencies {
     implementation(libs.androidx.exifinterface)
     implementation(libs.onnxruntime.android)
     implementation(libs.mlkit.text.recognition)
+    implementation(libs.osmdroid)
+    implementation(libs.osmbonuspack)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)

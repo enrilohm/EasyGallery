@@ -30,15 +30,27 @@ class MainActivity : AppCompatActivity() {
         viewModel = ViewModelProvider(this)[GalleryViewModel::class.java]
 
         val viewPager = findViewById<ViewPager2>(R.id.viewPager)
+        viewPager.offscreenPageLimit = 3
+        viewPager.isUserInputEnabled = false
         viewPager.adapter = GalleryPagerAdapter(this)
 
-        TabLayoutMediator(findViewById(R.id.tabLayout), viewPager) { tab, position ->
+        val tabLayout = findViewById<TabLayout>(R.id.tabLayout)
+        TabLayoutMediator(tabLayout, viewPager) { tab, position ->
             tab.text = when (position) {
                 0 -> "Gallery"
                 1 -> "Search"
-                else -> "Objects"
+                2 -> "Objects"
+                else -> "Map"
             }
         }.attach()
+
+        tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab) {
+                viewPager.setCurrentItem(tab.position, false)
+            }
+            override fun onTabUnselected(tab: TabLayout.Tab) {}
+            override fun onTabReselected(tab: TabLayout.Tab) {}
+        })
 
         requestPermissionAndLoad()
 
