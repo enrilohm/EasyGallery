@@ -10,11 +10,12 @@ import java.nio.ByteOrder
 object VectorStore {
 
     private const val DB_NAME = "embeddings.db"
-    private const val DB_VERSION = 5
+    private const val DB_VERSION = 6
     private const val TABLE = "embeddings"
     private const val OCR_TABLE = "ocr"
     private const val OBJECTS_TABLE = "objects"
     private const val FACES_TABLE = "faces"
+    private const val FAVORITES_TABLE = "favorites"
 
     private var helper: DbHelper? = null
 
@@ -106,14 +107,17 @@ object VectorStore {
         }
     }
 
-    fun findByText(query: String, limit: Int): List<String> {
+    fun findByText(query: String, limit: Int, allowedPaths: Set<String>? = null): List<String> {
         val db = helper!!.readableDatabase
         val paths = mutableListOf<String>()
         db.rawQuery(
-            "SELECT path FROM $OCR_TABLE WHERE ocr_text LIKE ? AND ocr_text IS NOT NULL AND ocr_text != '' LIMIT ?",
-            arrayOf("%$query%", limit.toString())
+            "SELECT path FROM $OCR_TABLE WHERE ocr_text LIKE ? AND ocr_text IS NOT NULL AND ocr_text != ''",
+            arrayOf("%$query%")
         ).use { cursor ->
-            while (cursor.moveToNext()) paths.add(cursor.getString(0))
+            while (cursor.moveToNext() && paths.size < limit) {
+                val path = cursor.getString(0)
+                if (allowedPaths == null || path in allowedPaths) paths.add(path)
+            }
         }
         return paths
     }
@@ -201,14 +205,17 @@ object VectorStore {
         return paths
     }
 
-    fun findByLabel(query: String, limit: Int): List<String> {
+    fun findByLabel(query: String, limit: Int, allowedPaths: Set<String>? = null): List<String> {
         val db = helper!!.readableDatabase
         val paths = mutableListOf<String>()
         db.rawQuery(
-            "SELECT path FROM $OBJECTS_TABLE WHERE ',' || labels || ',' LIKE '%,' || ? || ',%' AND labels != '' LIMIT ?",
-            arrayOf(query, limit.toString())
+            "SELECT path FROM $OBJECTS_TABLE WHERE ',' || labels || ',' LIKE '%,' || ? || ',%' AND labels != ''",
+            arrayOf(query)
         ).use { cursor ->
-            while (cursor.moveToNext()) paths.add(cursor.getString(0))
+            while (cursor.moveToNext() && paths.size < limit) {
+                val path = cursor.getString(0)
+                if (allowedPaths == null || path in allowedPaths) paths.add(path)
+            }
         }
         return paths
     }
@@ -273,14 +280,43 @@ object VectorStore {
         return result
     }
 
+    // --- Favorites ---
+
+    fun isFavorite(path: String): Boolean {
+        val db = helper!!.readableDatabase
+        db.rawQuery("SELECT 1 FROM $FAVORITES_TABLE WHERE path = ?", arrayOf(path)).use {
+            return it.moveToFirst()
+        }
+    }
+
+    fun setFavorite(path: String, favorite: Boolean) {
+        val db = helper!!.writableDatabase
+        if (favorite) {
+            val cv = ContentValues().apply { put("path", path) }
+            db.insertWithOnConflict(FAVORITES_TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE)
+        } else {
+            db.delete(FAVORITES_TABLE, "path = ?", arrayOf(path))
+        }
+    }
+
+    fun getFavoritePaths(): List<String> {
+        val db = helper!!.readableDatabase
+        val paths = mutableListOf<String>()
+        db.rawQuery("SELECT path FROM $FAVORITES_TABLE", null).use { cursor ->
+            while (cursor.moveToNext()) paths.add(cursor.getString(0))
+        }
+        return paths
+    }
+
     // --- Embedding similarity ---
 
-    fun findSimilar(query: FloatArray, topK: Int): List<String> {
+    fun findSimilar(query: FloatArray, topK: Int, allowedPaths: Set<String>? = null): List<String> {
         val db = helper!!.readableDatabase
         val scored = mutableListOf<Pair<Float, String>>()
         db.rawQuery("SELECT path, embedding FROM $TABLE", null).use { cursor ->
             while (cursor.moveToNext()) {
                 val path = cursor.getString(0)
+                if (allowedPaths != null && path !in allowedPaths) continue
                 val emb  = cursor.getBlob(1).toFloatArray()
                 scored.add(dotProduct(query, emb) to path)
             }
@@ -328,6 +364,7 @@ object VectorStore {
             db.execSQL("CREATE INDEX idx_embeddings_path ON $TABLE (path)")
             db.execSQL("CREATE INDEX idx_ocr_path ON $OCR_TABLE (path)")
             db.execSQL("CREATE INDEX idx_objects_path ON $OBJECTS_TABLE (path)")
+            db.execSQL("CREATE TABLE $FAVORITES_TABLE (path TEXT PRIMARY KEY)")
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -345,6 +382,9 @@ object VectorStore {
                 db.execSQL("CREATE INDEX IF NOT EXISTS idx_embeddings_path ON $TABLE (path)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS idx_ocr_path ON $OCR_TABLE (path)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS idx_objects_path ON $OBJECTS_TABLE (path)")
+            }
+            if (oldVersion < 6) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS $FAVORITES_TABLE (path TEXT PRIMARY KEY)")
             }
         }
     }

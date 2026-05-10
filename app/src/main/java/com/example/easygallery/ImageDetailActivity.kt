@@ -31,6 +31,7 @@ class ImageDetailActivity : AppCompatActivity() {
     private var showFaces = false
     private lateinit var paths: List<String>
     private lateinit var adapter: DetailPagerAdapter
+    private lateinit var favoriteButton: ImageButton
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,11 +54,24 @@ class ImageDetailActivity : AppCompatActivity() {
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
+        favoriteButton = findViewById(R.id.favoriteButton)
+        updateFavoriteButton(paths[startIndex])
+
         pager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
                 if (showFaces) detectAndShowFaces(position)
+                updateFavoriteButton(paths[position])
             }
         })
+
+        favoriteButton.setOnClickListener {
+            val path = paths[pager.currentItem]
+            lifecycleScope.launch(Dispatchers.IO) {
+                val nowFavorite = !VectorStore.isFavorite(path)
+                VectorStore.setFavorite(path, nowFavorite)
+                withContext(Dispatchers.Main) { updateFavoriteButton(path) }
+            }
+        }
 
         findViewById<View>(R.id.closeButton).setOnClickListener { finish() }
 
@@ -69,6 +83,17 @@ class ImageDetailActivity : AppCompatActivity() {
                 detectAndShowFaces(pager.currentItem)
             } else {
                 holders[pager.currentItem]?.overlay?.clear()
+            }
+        }
+    }
+
+    private fun updateFavoriteButton(path: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val fav = VectorStore.isFavorite(path)
+            withContext(Dispatchers.Main) {
+                favoriteButton.setImageResource(
+                    if (fav) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline
+                )
             }
         }
     }

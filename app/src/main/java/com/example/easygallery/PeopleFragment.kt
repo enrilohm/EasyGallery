@@ -21,7 +21,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
@@ -31,15 +33,21 @@ import kotlinx.coroutines.withContext
 
 class PeopleFragment : Fragment() {
 
+    private val viewModel: GalleryViewModel by activityViewModels()
+
     private data class ContactItem(val id: Long, val name: String, val photoUri: Uri)
 
     private lateinit var recyclerView: RecyclerView
     private lateinit var emptyText: TextView
+    private lateinit var swipeRefresh: SwipeRefreshLayout
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_people, container, false)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        swipeRefresh = view.findViewById(R.id.swipeRefresh)
+        swipeRefresh.setOnRefreshListener { loadContacts() }
+
         recyclerView = view.findViewById(R.id.peopleRecyclerView)
         emptyText = view.findViewById(R.id.emptyText)
 
@@ -81,6 +89,7 @@ class PeopleFragment : Fragment() {
                 recyclerView.layoutManager = GridLayoutManager(requireContext(), 3)
                 recyclerView.adapter = PeopleAdapter(contacts)
             }
+            swipeRefresh.isRefreshing = false
         }
     }
 
@@ -139,7 +148,8 @@ class PeopleFragment : Fragment() {
 
     private fun onContactClick(contact: ContactItem) {
         viewLifecycleOwner.lifecycleScope.launch {
-            val paths = withContext(Dispatchers.IO) { findPhotosForContact(contact) }
+            val rawPaths = withContext(Dispatchers.IO) { findPhotosForContact(contact) }
+            val paths = viewModel.applyFilters(rawPaths)
             if (paths.isEmpty()) {
                 Toast.makeText(requireContext(), "No matching photos found", Toast.LENGTH_SHORT).show()
                 return@launch

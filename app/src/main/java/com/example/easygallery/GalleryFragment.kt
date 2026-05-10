@@ -11,6 +11,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 
 class GalleryFragment : Fragment() {
 
@@ -18,6 +19,7 @@ class GalleryFragment : Fragment() {
     private lateinit var adapter: GalleryAdapter
     private lateinit var layoutManager: GridLayoutManager
     private lateinit var recyclerView: RecyclerView
+    private lateinit var swipeRefresh: SwipeRefreshLayout
 
     private var currentPath = ""
     private val pathStack = ArrayDeque<String>()
@@ -58,6 +60,9 @@ class GalleryFragment : Fragment() {
                     layoutManager.spanCount else 1
         }
 
+        swipeRefresh = view.findViewById(R.id.swipeRefresh)
+        swipeRefresh.setOnRefreshListener { viewModel.reload(requireContext().contentResolver) }
+
         recyclerView = view.findViewById(R.id.recyclerView)
         recyclerView.layoutManager = layoutManager
         recyclerView.adapter = adapter
@@ -69,11 +74,10 @@ class GalleryFragment : Fragment() {
             insets
         }
 
-        viewModel.loaded.observe(viewLifecycleOwner) { loaded ->
-            if (loaded) {
-                if (currentPath.isEmpty()) currentPath = viewModel.rootPath
-                updateView()
-            }
+        viewModel.filteredEntries.observe(viewLifecycleOwner) {
+            if (currentPath.isEmpty()) currentPath = viewModel.rootPath
+            updateView()
+            swipeRefresh.isRefreshing = false
         }
     }
 
@@ -86,8 +90,9 @@ class GalleryFragment : Fragment() {
 
     private fun updateView() {
         updateToolbarTitle()
-        val subfolders = childFolders(currentPath)
-        val images = viewModel.entries
+        val entries = viewModel.filteredEntries.value ?: return
+        val subfolders = childFolders(currentPath, entries)
+        val images = entries
             .filter { it.dir == currentPath }
             .map { GalleryItem.Image(it.uri, it.path) }
         adapter.updateItems(subfolders + images)
@@ -103,10 +108,10 @@ class GalleryFragment : Fragment() {
         }
     }
 
-    private fun childFolders(parent: String): List<GalleryItem.Folder> {
+    private fun childFolders(parent: String, entries: List<GalleryViewModel.ImageEntry>): List<GalleryItem.Folder> {
         val prefix = "$parent/"
         val folderMap = LinkedHashMap<String, MutableList<GalleryViewModel.ImageEntry>>()
-        for (entry in viewModel.entries) {
+        for (entry in entries) {
             if (!entry.dir.startsWith(prefix)) continue
             val nextSegment = entry.dir.removePrefix(prefix).substringBefore("/")
             folderMap.getOrPut("$prefix$nextSegment") { mutableListOf() }.add(entry)

@@ -2,11 +2,14 @@ package com.example.easygallery
 
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtException
 import ai.onnxruntime.OrtSession
+import ai.onnxruntime.providers.NNAPIFlags
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.nio.FloatBuffer
+import java.util.EnumSet
 
 object YoloDetector {
 
@@ -33,8 +36,15 @@ object YoloDetector {
 
     fun load(context: Context) {
         if (session != null) return
+        val opts = OrtSession.SessionOptions()
+        try {
+            opts.addNnapi(EnumSet.of(NNAPIFlags.USE_FP16))
+            android.util.Log.d(TAG, "NNAPI enabled")
+        } catch (e: OrtException) {
+            android.util.Log.w(TAG, "NNAPI unavailable, using CPU: ${e.message}")
+        }
         val bytes = YoloModelManager.modelFile(context).readBytes()
-        session = env.createSession(bytes)
+        session = env.createSession(bytes, opts)
         android.util.Log.d(TAG, "Model loaded. Inputs: ${session!!.inputNames}, Outputs: ${session!!.outputNames}")
     }
 

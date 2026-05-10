@@ -2,10 +2,13 @@ package com.example.easygallery
 
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
+import ai.onnxruntime.OrtException
 import ai.onnxruntime.OrtSession
+import ai.onnxruntime.providers.NNAPIFlags
 import android.content.Context
 import android.graphics.Bitmap
 import java.nio.FloatBuffer
+import java.util.EnumSet
 import kotlin.math.sqrt
 
 object FaceEncoder {
@@ -17,10 +20,14 @@ object FaceEncoder {
     fun load(context: Context) {
         if (session != null) return
         try {
-            session = env.createSession(
-                FaceModelManager.modelFile(context).absolutePath,
-                OrtSession.SessionOptions()
-            )
+            val opts = OrtSession.SessionOptions()
+            try {
+                opts.addNnapi(EnumSet.of(NNAPIFlags.USE_FP16))
+                android.util.Log.d(TAG, "NNAPI enabled")
+            } catch (e: OrtException) {
+                android.util.Log.w(TAG, "NNAPI unavailable, using CPU: ${e.message}")
+            }
+            session = env.createSession(FaceModelManager.modelFile(context).absolutePath, opts)
             android.util.Log.d(TAG, "Inputs:  ${session!!.inputNames}")
             android.util.Log.d(TAG, "Outputs: ${session!!.outputNames}")
         } catch (t: Throwable) {

@@ -37,4 +37,15 @@
 
     </LinearLayout>
 
+    <ImageButton
+        android:id="@+id/favoriteButton"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="24dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Toggle favorite"
+        android:padding="8dp"
+        android:src="@drawable/ic_heart_outline" />
+
 </FrameLayout>

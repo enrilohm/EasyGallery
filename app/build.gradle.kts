@@ -54,6 +54,7 @@ dependencies {
     implementation(libs.osmdroid)
     implementation(libs.osmbonuspack)
     implementation(libs.photoview)
+    implementation(libs.androidx.swiperefreshlayout)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)

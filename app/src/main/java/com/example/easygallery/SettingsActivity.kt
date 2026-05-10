@@ -11,12 +11,53 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.google.android.material.slider.Slider
 import com.google.android.material.switchmaterial.SwitchMaterial
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 class SettingsActivity : AppCompatActivity() {
+
+    private lateinit var cpuUsageText: TextView
+    private var cpuPollingJob: Job? = null
+    private var prevCpuTime = 0L
+    private var prevRealTime = 0L
+    private val cpuCores = Runtime.getRuntime().availableProcessors()
+
+    private fun readAppCpuUsage(): Int? {
+        val cpuTime = android.os.Process.getElapsedCpuTime()
+        val realTime = android.os.SystemClock.elapsedRealtime()
+        val deltaCpu = cpuTime - prevCpuTime
+        val deltaReal = realTime - prevRealTime
+        val isFirstSample = prevRealTime == 0L
+        prevCpuTime = cpuTime
+        prevRealTime = realTime
+        if (isFirstSample || deltaReal == 0L) return null
+        return ((deltaCpu * 100) / (deltaReal * cpuCores)).toInt().coerceIn(0, 100)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        prevCpuTime = 0L
+        prevRealTime = 0L
+        cpuPollingJob = lifecycleScope.launch {
+            while (isActive) {
+                val usage = readAppCpuUsage()
+                cpuUsageText.text = if (usage != null) "App CPU: $usage%" else "App CPU: —"
+                delay(2000)
+            }
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        cpuPollingJob?.cancel()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,6 +81,8 @@ class SettingsActivity : AppCompatActivity() {
                 this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0
             )
         }
+
+        cpuUsageText = findViewById(R.id.cpuUsageText)
 
         val prefs = getSharedPreferences("gallery_prefs", MODE_PRIVATE)
 

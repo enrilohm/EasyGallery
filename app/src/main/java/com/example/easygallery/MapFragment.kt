@@ -10,6 +10,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.config.Configuration
@@ -25,6 +26,7 @@ class MapFragment : Fragment() {
 
     private val viewModel: GalleryViewModel by activityViewModels()
     private var mapView: MapView? = null
+    private var markersJob: Job? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         Configuration.getInstance().load(
@@ -41,9 +43,7 @@ class MapFragment : Fragment() {
             map.controller.setCenter(GeoPoint(20.0, 0.0))
         }
 
-        viewModel.loaded.observe(viewLifecycleOwner) { loaded ->
-            if (loaded) loadMarkers()
-        }
+        viewModel.filteredEntries.observe(viewLifecycleOwner) { entries -> loadMarkers(entries) }
 
         return view
     }
@@ -53,11 +53,12 @@ class MapFragment : Fragment() {
         mapView?.onResume()
     }
 
-    private fun loadMarkers() {
+    private fun loadMarkers(entries: List<GalleryViewModel.ImageEntry>) {
+        markersJob?.cancel()
         val map = mapView ?: return
-        viewLifecycleOwner.lifecycleScope.launch {
+        markersJob = viewLifecycleOwner.lifecycleScope.launch {
             val points = withContext(Dispatchers.IO) {
-                viewModel.entries.mapNotNull { entry ->
+                entries.mapNotNull { entry ->
                     try {
                         ExifInterface(entry.path).latLong?.let { (lat, lon) ->
                             Triple(lat, lon, entry)

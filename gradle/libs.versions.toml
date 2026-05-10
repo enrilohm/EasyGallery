@@ -19,6 +19,7 @@ mlkit-text = "16.0.1"
 mlkit-face = "16.1.7"
 osmdroid = "6.1.18"
 osmbonuspack = "6.9.0"
+swiperefreshlayout = "1.1.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -42,6 +43,7 @@ mlkit-face-detection = { group = "com.google.mlkit", name = "face-detection", ve
 osmdroid = { group = "org.osmdroid", name = "osmdroid-android", version.ref = "osmdroid" }
 osmbonuspack = { group = "com.github.MKergall", name = "osmbonuspack", version.ref = "osmbonuspack" }
 photoview = { group = "com.github.chrisbanes", name = "PhotoView", version = "2.3.0" }
+androidx-swiperefreshlayout = { group = "androidx.swiperefreshlayout", name = "swiperefreshlayout", version.ref = "swiperefreshlayout" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

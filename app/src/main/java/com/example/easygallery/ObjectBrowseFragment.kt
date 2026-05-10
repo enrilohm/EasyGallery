@@ -15,6 +15,7 @@ import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import coil.load
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -27,6 +28,7 @@ class ObjectBrowseFragment : Fragment() {
 
     private lateinit var recyclerView: RecyclerView
     private lateinit var emptyText: View
+    private lateinit var swipeRefresh: SwipeRefreshLayout
 
     private var objectItems: List<ObjectItem> = emptyList()
     private var selectedLabel: String? = null
@@ -41,10 +43,21 @@ class ObjectBrowseFragment : Fragment() {
         inflater.inflate(R.layout.fragment_object_browse, container, false)
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        swipeRefresh = view.findViewById(R.id.swipeRefresh)
+        swipeRefresh.setOnRefreshListener {
+            val label = selectedLabel
+            if (label != null) showImagesForLabel(label) else loadObjectGrid()
+        }
+
         recyclerView = view.findViewById(R.id.objectRecyclerView)
         emptyText = view.findViewById(R.id.emptyText)
 
         requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, backCallback)
+
+        viewModel.filterState.observe(viewLifecycleOwner) {
+            val label = selectedLabel
+            if (label != null) showImagesForLabel(label) else loadObjectGrid()
+        }
 
         val pad = (4 * resources.displayMetrics.density).toInt()
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(recyclerView) { v, insets ->
@@ -53,15 +66,22 @@ class ObjectBrowseFragment : Fragment() {
             insets
         }
 
+        loadObjectGrid()
+    }
+
+    private fun loadObjectGrid() {
         viewLifecycleOwner.lifecycleScope.launch {
             val ctx = requireContext()
             objectItems = withContext(Dispatchers.IO) {
                 VectorStore.init(ctx)
-                VectorStore.getDistinctObjectLabels().map { (label, count) ->
-                    ObjectItem(label, VectorStore.getExamplePath(label), count)
+                VectorStore.getDistinctObjectLabels().mapNotNull { (label, _) ->
+                    val paths = viewModel.applyFilters(VectorStore.getImagePathsByLabel(label))
+                    if (paths.isEmpty()) null
+                    else ObjectItem(label, paths.first(), paths.size)
                 }
             }
             showObjectGrid()
+            swipeRefresh.isRefreshing = false
         }
     }
 
@@ -93,10 +113,9 @@ class ObjectBrowseFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             val ctx = requireContext()
             val pathToUri = viewModel.entries.associate { it.path to it.uri }
-            val items = withContext(Dispatchers.IO) {
-                VectorStore.getImagePathsByLabel(label).map { path ->
-                    GalleryItem.Image(pathToUri[path] ?: Uri.fromFile(File(path)), path) as GalleryItem
-                }
+            val rawPaths = withContext(Dispatchers.IO) { VectorStore.getImagePathsByLabel(label) }
+            val items = viewModel.applyFilters(rawPaths).map { path ->
+                GalleryItem.Image(pathToUri[path] ?: Uri.fromFile(File(path)), path) as GalleryItem
             }
             val columns = ctx.getSharedPreferences("gallery_prefs", Context.MODE_PRIVATE)
                 .getInt("columns", 3)
@@ -113,6 +132,7 @@ class ObjectBrowseFragment : Fragment() {
             )
             adapter.updateItems(items)
             recyclerView.adapter = adapter
+            swipeRefresh.isRefreshing = false
         }
     }
 

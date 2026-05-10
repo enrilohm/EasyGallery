@@ -2,14 +2,17 @@ package com.example.easygallery
 
 import android.content.ContentResolver
 import android.content.ContentUris
+import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
+import androidx.lifecycle.MediatorLiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 
 class GalleryViewModel : ViewModel() {
 
     data class ImageEntry(val uri: Uri, val dir: String, val path: String)
+    data class FilterState(val favoritesOnly: Boolean = false)
 
     var entries: List<ImageEntry> = emptyList()
         private set
@@ -18,9 +21,61 @@ class GalleryViewModel : ViewModel() {
         private set
 
     val loaded = MutableLiveData(false)
+    val filterState = MutableLiveData(FilterState())
+
+    private var favoritePaths: Set<String> = emptySet()
+
+    // Internal LiveData that fires on every load/reload; filteredEntries derives from this.
+    private val rawEntries = MutableLiveData<List<ImageEntry>>()
+
+    val filteredEntries = MediatorLiveData<List<ImageEntry>>()
+
+    init {
+        filteredEntries.addSource(rawEntries) { filteredEntries.value = applyFilterToEntries(it) }
+        filteredEntries.addSource(filterState) {
+            val raw = rawEntries.value ?: return@addSource
+            filteredEntries.value = applyFilterToEntries(raw)
+        }
+    }
+
+    fun applyFilters(paths: List<String>): List<String> {
+        val state = filterState.value ?: return paths
+        return if (state.favoritesOnly) paths.filter { it in favoritePaths } else paths
+    }
+
+    fun allowedPaths(): Set<String>? {
+        val state = filterState.value ?: return null
+        return if (state.favoritesOnly) favoritePaths else null
+    }
+
+    fun setFavoritesOnly(enabled: Boolean, context: Context) {
+        if (enabled) {
+            Thread {
+                VectorStore.init(context.applicationContext)
+                favoritePaths = VectorStore.getFavoritePaths().toSet()
+                filterState.postValue(FilterState(favoritesOnly = true))
+            }.start()
+        } else {
+            favoritePaths = emptySet()
+            filterState.value = FilterState(favoritesOnly = false)
+        }
+    }
+
+    private fun applyFilterToEntries(list: List<ImageEntry>): List<ImageEntry> {
+        val state = filterState.value ?: FilterState()
+        return if (state.favoritesOnly) list.filter { it.path in favoritePaths } else list
+    }
 
     fun load(resolver: ContentResolver) {
         if (loaded.value == true) return
+        doLoad(resolver)
+    }
+
+    fun reload(resolver: ContentResolver) {
+        doLoad(resolver)
+    }
+
+    private fun doLoad(resolver: ContentResolver) {
         Thread {
             val list = mutableListOf<ImageEntry>()
             val projection = arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DATA)
@@ -43,6 +98,7 @@ class GalleryViewModel : ViewModel() {
             entries = list
             @Suppress("DEPRECATION")
             rootPath = android.os.Environment.getExternalStorageDirectory().absolutePath
+            rawEntries.postValue(list)
             loaded.postValue(true)
         }.start()
     }

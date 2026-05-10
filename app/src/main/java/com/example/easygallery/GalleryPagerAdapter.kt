@@ -5,12 +5,13 @@ import androidx.fragment.app.FragmentActivity
 import androidx.viewpager2.adapter.FragmentStateAdapter
 
 class GalleryPagerAdapter(activity: FragmentActivity) : FragmentStateAdapter(activity) {
-    override fun getItemCount() = 5
+    override fun getItemCount() = 6
     override fun createFragment(position: Int): Fragment = when (position) {
         0 -> GalleryFragment()
         1 -> SearchFragment()
         2 -> ObjectBrowseFragment()
         3 -> MapFragment()
-        else -> PeopleFragment()
+        4 -> PeopleFragment()
+        else -> FilterFragment()
     }
 }

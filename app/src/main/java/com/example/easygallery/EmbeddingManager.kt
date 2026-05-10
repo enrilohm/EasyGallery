@@ -12,6 +12,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
@@ -26,11 +27,11 @@ object EmbeddingManager {
     private const val TAG = "EmbeddingManager"
     private const val PREFS_NAME = "embeddings"
     private const val KEY_SKIP = "skip_paths"
+    private const val BATCH_SIZE = 8
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
 
-    // paths handled this session (new embeds + already-done + failures)
     private val _processed = MutableLiveData(0)
     val processed: LiveData<Int> = _processed
 
@@ -46,7 +47,6 @@ object EmbeddingManager {
     fun start(context: Context) {
         if (job?.isActive == true) return
         val appContext = context.applicationContext
-
         job = scope.launch {
             _isRunning.postValue(true)
             try {
@@ -74,7 +74,9 @@ object EmbeddingManager {
         val done = AtomicInteger(0)
         val parallelism = minOf(4, Runtime.getRuntime().availableProcessors())
         val semaphore = Semaphore(parallelism)
+        val toInfer = Collections.synchronizedList(mutableListOf<Pair<String, String>>())
 
+        // Phase 1: parallel I/O — filter which paths need inference
         coroutineScope {
             paths.map { path ->
                 async {
@@ -100,16 +102,40 @@ object EmbeddingManager {
                             VectorStore.updatePath(hash, path)
                             _processed.postValue(done.incrementAndGet()); return@withPermit
                         }
-                        val embedding = ClipEncoder.encode(path)
-                        if (embedding == null) {
-                            addToSkip(path, skipPaths, prefs)
-                            _processed.postValue(done.incrementAndGet()); _failed.postValue(skipPaths.size); return@withPermit
-                        }
-                        VectorStore.insert(hash, path, embedding)
-                        _processed.postValue(done.incrementAndGet())
+                        toInfer.add(path to hash)
                     }
                 }
             }.awaitAll()
+        }
+
+        // Phase 2: batch inference
+        for (batch in toInfer.chunked(BATCH_SIZE)) {
+            if (!currentCoroutineContext().isActive) break
+            val bitmaps = batch.map { (path, _) -> ClipEncoder.decodeBitmap(path) }
+            val validIdx = bitmaps.indices.filter { bitmaps[it] != null }
+
+            if (validIdx.isNotEmpty()) {
+                val embeddings = ClipEncoder.encodeBatch(validIdx.map { bitmaps[it]!! })
+                validIdx.forEachIndexed { ei, bi ->
+                    val (path, hash) = batch[bi]
+                    val emb = embeddings[ei]
+                    if (emb != null) {
+                        VectorStore.insert(hash, path, emb)
+                    } else {
+                        addToSkip(path, skipPaths, prefs)
+                        _failed.postValue(skipPaths.size)
+                    }
+                    bitmaps[bi]!!.recycle()
+                }
+            }
+
+            val failedIdx = bitmaps.indices.filter { bitmaps[it] == null }
+            if (failedIdx.isNotEmpty()) {
+                failedIdx.forEach { bi -> addToSkip(batch[bi].first, skipPaths, prefs) }
+                _failed.postValue(skipPaths.size)
+            }
+
+            _processed.postValue(done.addAndGet(batch.size))
         }
     }
 
