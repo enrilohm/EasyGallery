@@ -101,8 +101,12 @@ class ObjectBrowseFragment : Fragment() {
             val columns = ctx.getSharedPreferences("gallery_prefs", Context.MODE_PRIVATE)
                 .getInt("columns", 3)
             recyclerView.layoutManager = GridLayoutManager(ctx, columns)
+            val imagePaths = items.filterIsInstance<GalleryItem.Image>().map { it.path }
             val adapter = GalleryAdapter(
                 onFolderClick = {},
+                onImageClick = { _, index ->
+                    ImageDetailActivity.open(requireContext(), imagePaths, index)
+                },
                 onImageLongClick = { image ->
                     ImageInfoSheet.show(parentFragmentManager, image.uri, image.path)
                 }

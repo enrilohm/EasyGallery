@@ -30,8 +30,9 @@ class ClusterImagesSheet : BottomSheetDialogFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val paths = arguments?.getStringArrayList(ARG_PATHS) ?: return
         val uris  = arguments?.getStringArrayList(ARG_URIS)  ?: return
+        val title = arguments?.getString(ARG_TITLE)
 
-        view.findViewById<TextView>(R.id.clusterTitle).text = "${paths.size} photos"
+        view.findViewById<TextView>(R.id.clusterTitle).text = title ?: "${paths.size} photos"
 
         val items = paths.zip(uris).map { (path, uri) ->
             GalleryItem.Image(Uri.parse(uri), path)
@@ -39,6 +40,9 @@ class ClusterImagesSheet : BottomSheetDialogFragment() {
 
         val adapter = GalleryAdapter(
             onFolderClick = {},
+            onImageClick = { _, index ->
+                ImageDetailActivity.open(requireContext(), paths, index)
+            },
             onImageLongClick = { image ->
                 ImageInfoSheet.show(parentFragmentManager, image.uri, image.path)
             }
@@ -54,12 +58,25 @@ class ClusterImagesSheet : BottomSheetDialogFragment() {
     companion object {
         private const val ARG_PATHS = "paths"
         private const val ARG_URIS  = "uris"
+        private const val ARG_TITLE = "title"
 
         fun show(fm: FragmentManager, entries: List<GalleryViewModel.ImageEntry>) {
             ClusterImagesSheet().apply {
                 arguments = Bundle().apply {
                     putStringArrayList(ARG_PATHS, ArrayList(entries.map { it.path }))
                     putStringArrayList(ARG_URIS,  ArrayList(entries.map { it.uri.toString() }))
+                }
+            }.show(fm, null)
+        }
+
+        fun showPaths(fm: FragmentManager, paths: List<String>, title: String? = null) {
+            ClusterImagesSheet().apply {
+                arguments = Bundle().apply {
+                    putStringArrayList(ARG_PATHS, ArrayList(paths))
+                    putStringArrayList(ARG_URIS, ArrayList(paths.map {
+                        android.net.Uri.fromFile(java.io.File(it)).toString()
+                    }))
+                    title?.let { putString(ARG_TITLE, it) }
                 }
             }.show(fm, null)
         }

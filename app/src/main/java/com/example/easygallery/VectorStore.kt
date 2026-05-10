@@ -10,10 +10,11 @@ import java.nio.ByteOrder
 object VectorStore {
 
     private const val DB_NAME = "embeddings.db"
-    private const val DB_VERSION = 3
+    private const val DB_VERSION = 4
     private const val TABLE = "embeddings"
     private const val OCR_TABLE = "ocr"
     private const val OBJECTS_TABLE = "objects"
+    private const val FACES_TABLE = "faces"
 
     private var helper: DbHelper? = null
 
@@ -191,6 +192,66 @@ object VectorStore {
         return paths
     }
 
+    // --- Faces ---
+
+    fun hasFaceEntry(path: String): Boolean {
+        val db = helper!!.readableDatabase
+        db.rawQuery("SELECT 1 FROM $FACES_TABLE WHERE path = ?", arrayOf(path)).use {
+            return it.moveToFirst()
+        }
+    }
+
+    fun insertFace(path: String, faceIndex: Int, embedding: FloatArray) {
+        val cv = ContentValues().apply {
+            put("path", path)
+            put("face_index", faceIndex)
+            put("embedding", embedding.toByteArray())
+        }
+        helper!!.writableDatabase
+            .insertWithOnConflict(FACES_TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE)
+    }
+
+    fun countFaceEntries(): Int {
+        val db = helper!!.readableDatabase
+        db.rawQuery("SELECT COUNT(DISTINCT path) FROM $FACES_TABLE", null).use {
+            return if (it.moveToFirst()) it.getInt(0) else 0
+        }
+    }
+
+    fun findSimilarFaces(query: FloatArray, topK: Int): List<String> {
+        val db = helper!!.readableDatabase
+        val scored = mutableListOf<Pair<Float, String>>()
+        db.rawQuery(
+            "SELECT path, embedding FROM $FACES_TABLE WHERE face_index >= 0 AND length(embedding) > 0",
+            null
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val path = cursor.getString(0)
+                val emb  = cursor.getBlob(1).toFloatArray()
+                scored.add(dotProduct(query, emb) to path)
+            }
+        }
+        return scored.sortedByDescending { it.first }.take(topK).map { it.second }.distinct()
+    }
+
+    /** Returns all face embeddings with path and row id, skipping sentinel no-face entries. */
+    fun getAllFaceEmbeddings(): List<Triple<Long, String, FloatArray>> {
+        val db = helper!!.readableDatabase
+        val result = mutableListOf<Triple<Long, String, FloatArray>>()
+        db.rawQuery(
+            "SELECT id, path, embedding FROM $FACES_TABLE WHERE face_index >= 0 AND length(embedding) > 0",
+            null
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val id   = cursor.getLong(0)
+                val path = cursor.getString(1)
+                val emb  = cursor.getBlob(2).toFloatArray()
+                result.add(Triple(id, path, emb))
+            }
+        }
+        return result
+    }
+
     // --- Embedding similarity ---
 
     fun findSimilar(query: FloatArray, topK: Int): List<String> {
@@ -241,6 +302,8 @@ object VectorStore {
             db.execSQL("CREATE TABLE $TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, embedding BLOB NOT NULL)")
             db.execSQL("CREATE TABLE $OCR_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, ocr_text TEXT)")
             db.execSQL("CREATE TABLE $OBJECTS_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, labels TEXT)")
+            db.execSQL("CREATE TABLE $FACES_TABLE (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, face_index INTEGER NOT NULL, embedding BLOB NOT NULL)")
+            db.execSQL("CREATE UNIQUE INDEX idx_faces_path_face ON $FACES_TABLE (path, face_index)")
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -249,6 +312,10 @@ object VectorStore {
             }
             if (oldVersion < 3) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS $OBJECTS_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, labels TEXT)")
+            }
+            if (oldVersion < 4) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS $FACES_TABLE (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, face_index INTEGER NOT NULL, embedding BLOB NOT NULL)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_faces_path_face ON $FACES_TABLE (path, face_index)")
             }
         }
     }

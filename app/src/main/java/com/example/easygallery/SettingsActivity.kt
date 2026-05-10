@@ -314,6 +314,112 @@ class SettingsActivity : AppCompatActivity() {
                 YoloModelManager.cancelDownload()
             }
         }
+
+        // --- Face Detection section views ---
+        val faceDetectionSwitch = findViewById<SwitchMaterial>(R.id.faceDetectionSwitch)
+        val faceDetectionSection = findViewById<View>(R.id.faceDetectionSection)
+        val faceModelProgressBar = findViewById<LinearProgressIndicator>(R.id.faceModelProgressBar)
+        val faceModelStatusText = findViewById<TextView>(R.id.faceModelStatusText)
+        val faceModelActionButton = findViewById<MaterialButton>(R.id.faceModelActionButton)
+        val faceProcessingSection = findViewById<View>(R.id.faceProcessingSection)
+        val faceProgressBar = findViewById<LinearProgressIndicator>(R.id.faceProgressBar)
+        val faceProgressText = findViewById<TextView>(R.id.faceProgressText)
+        val pauseResumeFaceButton = findViewById<MaterialButton>(R.id.pauseResumeFaceButton)
+
+        FaceModelManager.state.observe(this) { state ->
+            when (state) {
+                is FaceModelManager.State.NotDownloaded -> {
+                    faceModelProgressBar.visibility = View.GONE
+                    faceModelStatusText.text = "Not downloaded (~13 MB)"
+                    faceModelActionButton.text = "Download"
+                    faceModelActionButton.isEnabled = true
+                    faceProcessingSection.visibility = View.GONE
+                }
+                is FaceModelManager.State.Downloading -> {
+                    faceModelProgressBar.visibility = View.VISIBLE
+                    if (state.totalMb > 0) {
+                        faceModelProgressBar.isIndeterminate = false
+                        faceModelProgressBar.max = state.totalMb.toInt()
+                        faceModelProgressBar.progress = state.downloadedMb.toInt()
+                        faceModelStatusText.text = "%.1f / %.1f MB".format(state.downloadedMb, state.totalMb)
+                    } else {
+                        faceModelProgressBar.isIndeterminate = true
+                        faceModelStatusText.text = "%.1f MB…".format(state.downloadedMb)
+                    }
+                    faceModelActionButton.text = "Cancel"
+                    faceModelActionButton.isEnabled = true
+                    faceProcessingSection.visibility = View.GONE
+                }
+                is FaceModelManager.State.Ready -> {
+                    faceModelProgressBar.visibility = View.GONE
+                    faceModelStatusText.text = "Ready"
+                    faceModelActionButton.text = "Delete"
+                    faceModelActionButton.isEnabled = true
+                    if (faceDetectionSwitch.isChecked) {
+                        faceProcessingSection.visibility = View.VISIBLE
+                        FaceIndexManager.loadProgress(this)
+                        FaceIndexManager.start(this)
+                    }
+                }
+                is FaceModelManager.State.Failed -> {
+                    faceModelProgressBar.visibility = View.GONE
+                    faceModelStatusText.text = "Failed: ${state.message}"
+                    faceModelActionButton.text = "Retry"
+                    faceModelActionButton.isEnabled = true
+                    faceProcessingSection.visibility = View.GONE
+                }
+            }
+        }
+
+        faceModelActionButton.setOnClickListener {
+            when (FaceModelManager.state.value) {
+                is FaceModelManager.State.NotDownloaded, is FaceModelManager.State.Failed ->
+                    FaceModelManager.download(this)
+                is FaceModelManager.State.Downloading ->
+                    FaceModelManager.cancelDownload()
+                is FaceModelManager.State.Ready ->
+                    FaceModelManager.delete(this)
+                else -> {}
+            }
+        }
+
+        fun updateFaceText(processed: Int, total: Int) {
+            faceProgressText.text = "$processed / $total images processed"
+            if (total > 0) {
+                faceProgressBar.max = total
+                faceProgressBar.progress = processed
+            }
+        }
+
+        FaceIndexManager.processed.observe(this) { processed ->
+            updateFaceText(processed, FaceIndexManager.total.value ?: 0)
+        }
+        FaceIndexManager.total.observe(this) { total ->
+            updateFaceText(FaceIndexManager.processed.value ?: 0, total)
+        }
+        FaceIndexManager.isRunning.observe(this) { running ->
+            pauseResumeFaceButton.text = if (running) "Pause" else "Resume"
+        }
+
+        pauseResumeFaceButton.setOnClickListener {
+            if (FaceIndexManager.isRunning.value == true) FaceIndexManager.stop()
+            else FaceIndexManager.start(this)
+        }
+
+        faceDetectionSwitch.isChecked = prefs.getBoolean("face_detection_enabled", false)
+        faceDetectionSection.visibility = if (faceDetectionSwitch.isChecked) View.VISIBLE else View.GONE
+        if (faceDetectionSwitch.isChecked) FaceModelManager.checkState(this)
+
+        faceDetectionSwitch.setOnCheckedChangeListener { _, checked ->
+            prefs.edit().putBoolean("face_detection_enabled", checked).apply()
+            faceDetectionSection.visibility = if (checked) View.VISIBLE else View.GONE
+            if (checked) {
+                FaceModelManager.checkState(this)
+            } else {
+                FaceIndexManager.stop()
+                FaceModelManager.cancelDownload()
+            }
+        }
     }
 
     override fun onSupportNavigateUp(): Boolean {

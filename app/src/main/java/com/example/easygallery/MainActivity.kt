@@ -30,7 +30,7 @@ class MainActivity : AppCompatActivity() {
         viewModel = ViewModelProvider(this)[GalleryViewModel::class.java]
 
         val viewPager = findViewById<ViewPager2>(R.id.viewPager)
-        viewPager.offscreenPageLimit = 3
+        viewPager.offscreenPageLimit = 4
         viewPager.isUserInputEnabled = false
         viewPager.adapter = GalleryPagerAdapter(this)
 
@@ -40,7 +40,8 @@ class MainActivity : AppCompatActivity() {
                 0 -> "Gallery"
                 1 -> "Search"
                 2 -> "Objects"
-                else -> "Map"
+                3 -> "Map"
+                else -> "People"
             }
         }.attach()
 

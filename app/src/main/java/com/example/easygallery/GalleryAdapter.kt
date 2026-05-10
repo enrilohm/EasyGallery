@@ -11,6 +11,7 @@ import coil.load
 
 class GalleryAdapter(
     private val onFolderClick: (GalleryItem.Folder) -> Unit,
+    private val onImageClick: (GalleryItem.Image, Int) -> Unit = { _, _ -> },
     private val onImageLongClick: (GalleryItem.Image) -> Unit = {}
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
@@ -51,10 +52,14 @@ class GalleryAdapter(
             }
             is GalleryItem.Image -> {
                 (holder as ImageViewHolder).imageView.load(item.uri)
+                val imageIndex = items.take(position + 1).count { it is GalleryItem.Image } - 1
+                holder.itemView.setOnClickListener { onImageClick(item, imageIndex) }
                 holder.itemView.setOnLongClickListener { onImageLongClick(item); true }
             }
         }
     }
+
+    fun currentPaths(): List<String> = items.filterIsInstance<GalleryItem.Image>().map { it.path }
 
     override fun getItemCount() = items.size
 
