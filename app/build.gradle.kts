@@ -36,6 +36,11 @@ android {
     androidResources {
         noCompress += "tflite"
     }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
 }
 
 dependencies {
@@ -53,7 +58,7 @@ dependencies {
     implementation(libs.androidx.exifinterface)
     implementation(libs.onnxruntime.android)
     implementation(libs.mlkit.text.recognition)
-    implementation(libs.tensorflow.lite)
+    implementation(libs.litert)
     implementation(libs.osmdroid)
     implementation(libs.osmbonuspack)
     implementation(libs.photoview)
