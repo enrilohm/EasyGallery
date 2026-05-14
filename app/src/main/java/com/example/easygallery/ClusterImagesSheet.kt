@@ -31,6 +31,7 @@ class ClusterImagesSheet : BottomSheetDialogFragment() {
         val paths = arguments?.getStringArrayList(ARG_PATHS) ?: return
         val uris  = arguments?.getStringArrayList(ARG_URIS)  ?: return
         val title = arguments?.getString(ARG_TITLE)
+        val clusterId = arguments?.getLong(ARG_CLUSTER_ID, -1L) ?: -1L
 
         view.findViewById<TextView>(R.id.clusterTitle).text = title ?: "${paths.size} photos"
 
@@ -41,7 +42,7 @@ class ClusterImagesSheet : BottomSheetDialogFragment() {
         val adapter = GalleryAdapter(
             onFolderClick = {},
             onImageClick = { _, index ->
-                ImageDetailActivity.open(requireContext(), paths, index)
+                ImageDetailActivity.open(requireContext(), paths, index, clusterId)
             }
         )
         adapter.updateItems(items)
@@ -56,6 +57,7 @@ class ClusterImagesSheet : BottomSheetDialogFragment() {
         private const val ARG_PATHS = "paths"
         private const val ARG_URIS  = "uris"
         private const val ARG_TITLE = "title"
+        private const val ARG_CLUSTER_ID = "cluster_id"
 
         fun show(fm: FragmentManager, entries: List<GalleryViewModel.ImageEntry>) {
             ClusterImagesSheet().apply {
@@ -66,7 +68,7 @@ class ClusterImagesSheet : BottomSheetDialogFragment() {
             }.show(fm, null)
         }
 
-        fun showPaths(fm: FragmentManager, paths: List<String>, title: String? = null) {
+        fun showPaths(fm: FragmentManager, paths: List<String>, title: String? = null, clusterId: Long = -1L) {
             ClusterImagesSheet().apply {
                 arguments = Bundle().apply {
                     putStringArrayList(ARG_PATHS, ArrayList(paths))
@@ -74,6 +76,7 @@ class ClusterImagesSheet : BottomSheetDialogFragment() {
                         android.net.Uri.fromFile(java.io.File(it)).toString()
                     }))
                     title?.let { putString(ARG_TITLE, it) }
+                    putLong(ARG_CLUSTER_ID, clusterId)
                 }
             }.show(fm, null)
         }

@@ -386,6 +386,7 @@ class SettingsActivity : AppCompatActivity() {
         val faceProgressBar = findViewById<LinearProgressIndicator>(R.id.faceProgressBar)
         val faceProgressText = findViewById<TextView>(R.id.faceProgressText)
         val pauseResumeFaceButton = findViewById<MaterialButton>(R.id.pauseResumeFaceButton)
+        val reindexFaceButton = findViewById<MaterialButton>(R.id.reindexFaceButton)
 
         FaceModelManager.state.observe(this) { state ->
             when (state) {
@@ -466,6 +467,26 @@ class SettingsActivity : AppCompatActivity() {
         pauseResumeFaceButton.setOnClickListener {
             if (FaceIndexManager.isRunning.value == true) FaceIndexManager.stop()
             else { FaceIndexManager.start(this); IndexingForegroundService.start(this) }
+        }
+
+        reindexFaceButton.setOnClickListener {
+            FaceIndexManager.stop()
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                VectorStore.init(applicationContext)
+                VectorStore.clearFaces()
+                FaceIndexManager.start(applicationContext)
+                IndexingForegroundService.start(applicationContext)
+            }
+        }
+
+        val clusterThresholdSlider = findViewById<Slider>(R.id.clusterThresholdSlider)
+        val clusterThresholdLabel = findViewById<TextView>(R.id.clusterThresholdLabel)
+        val savedThreshold = prefs.getFloat("face_cluster_threshold", 0.45f)
+        clusterThresholdSlider.value = savedThreshold
+        clusterThresholdLabel.text = "Threshold: %.2f".format(savedThreshold)
+        clusterThresholdSlider.addOnChangeListener { _, value, _ ->
+            prefs.edit().putFloat("face_cluster_threshold", value).apply()
+            clusterThresholdLabel.text = "Threshold: %.2f".format(value)
         }
 
         faceDetectionSwitch.isChecked = prefs.getBoolean("face_detection_enabled", false)

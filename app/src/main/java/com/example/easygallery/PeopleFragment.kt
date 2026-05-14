@@ -1,32 +1,25 @@
 package com.example.easygallery
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.ImageDecoder
-import android.net.Uri
-import android.os.Build
+import android.graphics.RectF
 import android.os.Bundle
-import android.provider.ContactsContract
-import android.provider.MediaStore
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
-import android.widget.Toast
-import java.io.File
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.lifecycleScope
-import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import coil.load
+import coil.size.Size
+import coil.transform.Transformation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -34,8 +27,6 @@ import kotlinx.coroutines.withContext
 class PeopleFragment : Fragment() {
 
     private val viewModel: GalleryViewModel by activityViewModels()
-
-    private data class ContactItem(val id: Long, val name: String, val photoUri: Uri)
 
     private lateinit var recyclerView: RecyclerView
     private lateinit var emptyText: TextView
@@ -46,7 +37,7 @@ class PeopleFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         swipeRefresh = view.findViewById(R.id.swipeRefresh)
-        swipeRefresh.setOnRefreshListener { loadContacts() }
+        swipeRefresh.setOnRefreshListener { loadClusters(recluster = true) }
 
         recyclerView = view.findViewById(R.id.peopleRecyclerView)
         emptyText = view.findViewById(R.id.emptyText)
@@ -58,7 +49,7 @@ class PeopleFragment : Fragment() {
             insets
         }
 
-        loadContacts()
+        loadClusters(recluster = false)
     }
 
     override fun onResume() {
@@ -69,64 +60,45 @@ class PeopleFragment : Fragment() {
         }
     }
 
-    private fun loadContacts() {
-        if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.READ_CONTACTS)
-            != PackageManager.PERMISSION_GRANTED) {
-            emptyText.text = "Contacts permission not granted."
-            emptyText.visibility = View.VISIBLE
-            requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 1)
-            return
-        }
-
+    private fun loadClusters(recluster: Boolean) {
+        swipeRefresh.isRefreshing = true
         viewLifecycleOwner.lifecycleScope.launch {
-            val contacts = withContext(Dispatchers.IO) { queryContacts() }
-            if (contacts.isEmpty()) {
+            val (clusters, faceCount) = withContext(Dispatchers.IO) {
+                VectorStore.init(requireContext().applicationContext)
+                if (recluster || !VectorStore.hasClusters()) {
+                    val threshold = requireContext()
+                        .getSharedPreferences("gallery_prefs", android.content.Context.MODE_PRIVATE)
+                        .getFloat("face_cluster_threshold", 0.45f)
+                    val faces = VectorStore.getAllGoodFaceEmbeddings()
+                    val result = FaceClusterer.cluster(faces, threshold)
+                    VectorStore.storeClusters(result)
+                }
+                VectorStore.getStoredClusters() to VectorStore.countFaceEntries()
+            }
+
+            val filtered = clusters
+                .map { c -> c.copy(paths = viewModel.applyFilters(c.paths)) }
+                .filter { it.paths.size >= 2 }
+
+            if (filtered.isEmpty()) {
+                emptyText.text = when {
+                    faceCount == 0 -> "No faces indexed yet.\nEnable face detection in Settings."
+                    else -> "No recurring faces found."
+                }
                 emptyText.visibility = View.VISIBLE
                 recyclerView.visibility = View.GONE
             } else {
                 emptyText.visibility = View.GONE
                 recyclerView.visibility = View.VISIBLE
                 recyclerView.layoutManager = GridLayoutManager(requireContext(), 3)
-                recyclerView.adapter = PeopleAdapter(contacts)
+                recyclerView.adapter = ClustersAdapter(filtered)
             }
             swipeRefresh.isRefreshing = false
         }
     }
 
-    private fun queryContacts(): List<ContactItem> {
-        val resolver = requireContext().contentResolver
-        val contacts = mutableListOf<ContactItem>()
-        resolver.query(
-            ContactsContract.Contacts.CONTENT_URI,
-            arrayOf(
-                ContactsContract.Contacts._ID,
-                ContactsContract.Contacts.DISPLAY_NAME_PRIMARY,
-                ContactsContract.Contacts.PHOTO_URI
-            ),
-            "${ContactsContract.Contacts.PHOTO_URI} IS NOT NULL",
-            null,
-            "${ContactsContract.Contacts.DISPLAY_NAME_PRIMARY} ASC"
-        )?.use { cursor ->
-            val idCol = cursor.getColumnIndexOrThrow(ContactsContract.Contacts._ID)
-            val nameCol = cursor.getColumnIndexOrThrow(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY)
-            val photoCol = cursor.getColumnIndexOrThrow(ContactsContract.Contacts.PHOTO_URI)
-            while (cursor.moveToNext()) {
-                val id = cursor.getLong(idCol)
-                val name = cursor.getString(nameCol) ?: continue
-                val photoUri = cursor.getString(photoCol) ?: continue
-                contacts.add(ContactItem(id, name, Uri.parse(photoUri)))
-            }
-        }
-        return contacts
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        if (requestCode == 1 && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED)
-            loadContacts()
-    }
-
-    private inner class PeopleAdapter(private val items: List<ContactItem>) :
-        RecyclerView.Adapter<PeopleAdapter.VH>() {
+    private inner class ClustersAdapter(private val items: List<VectorStore.StoredCluster>) :
+        RecyclerView.Adapter<ClustersAdapter.VH>() {
 
         inner class VH(view: View) : RecyclerView.ViewHolder(view) {
             val photo: ImageView = view.findViewById(R.id.contactPhoto)
@@ -139,48 +111,38 @@ class PeopleFragment : Fragment() {
         override fun getItemCount() = items.size
 
         override fun onBindViewHolder(holder: VH, position: Int) {
-            val item = items[position]
-            holder.name.text = item.name
-            holder.photo.load(item.photoUri) { crossfade(true) }
-            holder.itemView.setOnClickListener { onContactClick(item) }
-        }
-    }
-
-    private fun onContactClick(contact: ContactItem) {
-        viewLifecycleOwner.lifecycleScope.launch {
-            val rawPaths = withContext(Dispatchers.IO) { findPhotosForContact(contact) }
-            val paths = viewModel.applyFilters(rawPaths)
-            if (paths.isEmpty()) {
-                Toast.makeText(requireContext(), "No matching photos found", Toast.LENGTH_SHORT).show()
-                return@launch
+            val cluster = items[position]
+            holder.name.text = cluster.name ?: "${cluster.paths.size} photos"
+            val bbox = cluster.representativeBBox
+            if (bbox != null) {
+                holder.photo.load(cluster.representativePath) {
+                    crossfade(true)
+                    transformations(FaceCropTransformation(bbox))
+                }
+            } else {
+                holder.photo.load(cluster.representativePath) { crossfade(true) }
             }
-            ClusterImagesSheet.showPaths(parentFragmentManager, paths, contact.name)
-        }
-    }
-
-    private suspend fun findPhotosForContact(contact: ContactItem): List<String> {
-        val context = requireContext().applicationContext
-        VectorStore.init(context)
-        FaceEncoder.load(context)
-
-        val bitmap = loadBitmap(contact.photoUri) ?: return emptyList()
-        val faces = FaceDetector.detect(bitmap)
-        if (faces.isEmpty()) return emptyList()
-
-        val embedding = FaceEncoder.encode(faces.first().crop) ?: return emptyList()
-        return VectorStore.findSimilarFaces(embedding, 50)
-    }
-
-    private fun loadBitmap(uri: Uri): Bitmap? = try {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            ImageDecoder.decodeBitmap(ImageDecoder.createSource(requireContext().contentResolver, uri)) { decoder, _, _ ->
-                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            holder.itemView.setOnClickListener {
+                ClusterImagesSheet.showPaths(
+                    parentFragmentManager,
+                    cluster.paths,
+                    cluster.name ?: "Person ${position + 1}",
+                    cluster.clusterId
+                )
             }
-        } else {
-            @Suppress("DEPRECATION")
-            MediaStore.Images.Media.getBitmap(requireContext().contentResolver, uri)
         }
-    } catch (e: Exception) {
-        null
+    }
+
+    private class FaceCropTransformation(private val bounds: RectF) : Transformation {
+        override val cacheKey = "face_crop_v2|${bounds.left}|${bounds.top}|${bounds.right}|${bounds.bottom}"
+
+        override suspend fun transform(input: Bitmap, size: Size): Bitmap {
+            val extra  = maxOf(bounds.right - bounds.left, bounds.bottom - bounds.top) * 0.6f
+            val left   = ((bounds.left   - extra) * input.width ).toInt().coerceIn(0, input.width  - 1)
+            val top    = ((bounds.top    - extra) * input.height).toInt().coerceIn(0, input.height - 1)
+            val right  = ((bounds.right  + extra) * input.width ).toInt().coerceIn(left + 1, input.width)
+            val bottom = ((bounds.bottom + extra) * input.height).toInt().coerceIn(top  + 1, input.height)
+            return Bitmap.createBitmap(input, left, top, right - left, bottom - top)
+        }
     }
 }

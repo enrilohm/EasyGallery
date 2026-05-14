@@ -27,9 +27,10 @@ import kotlinx.coroutines.withContext
 
 class ImageDetailActivity : AppCompatActivity() {
 
-    private val faceBoxCache = mutableMapOf<String, List<RectF>>()
+    private val faceBoxCache = mutableMapOf<String, Pair<List<RectF>, List<RectF>>>()
     private val holders = SparseArray<DetailPagerAdapter.VH>()
     private var showFaces = false
+    private var highlightClusterId = -1L
     private lateinit var paths: List<String>
     private lateinit var adapter: DetailPagerAdapter
     private lateinit var favoriteButton: ImageButton
@@ -45,6 +46,7 @@ class ImageDetailActivity : AppCompatActivity() {
 
         paths = intent.getStringArrayListExtra(EXTRA_PATHS) ?: return finish()
         val startIndex = intent.getIntExtra(EXTRA_INDEX, 0)
+        highlightClusterId = intent.getLongExtra(EXTRA_HIGHLIGHT_CLUSTER_ID, -1L)
 
         adapter = DetailPagerAdapter(paths)
         val pager = findViewById<ViewPager2>(R.id.detailPager)
@@ -63,7 +65,7 @@ class ImageDetailActivity : AppCompatActivity() {
 
         pager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
-                if (showFaces) detectAndShowFaces(position)
+                if (showFaces) loadAndShowFaces(position)
                 updateFavoriteButton(paths[position])
                 updateHiddenButton(paths[position])
             }
@@ -99,7 +101,7 @@ class ImageDetailActivity : AppCompatActivity() {
             showFaces = !showFaces
             faceToggle.alpha = if (showFaces) 1f else 0.4f
             if (showFaces) {
-                detectAndShowFaces(pager.currentItem)
+                loadAndShowFaces(pager.currentItem)
             } else {
                 holders[pager.currentItem]?.overlay?.clear()
             }
@@ -134,19 +136,26 @@ class ImageDetailActivity : AppCompatActivity() {
         }
     }
 
-    private fun detectAndShowFaces(position: Int) {
+    private fun loadAndShowFaces(position: Int) {
         val path = paths[position]
         val cached = faceBoxCache[path]
         if (cached != null) {
-            holders[position]?.overlay?.setFaces(cached)
+            holders[position]?.overlay?.setFaces(cached.first, cached.second)
             return
         }
         lifecycleScope.launch {
-            val boxes = withContext(Dispatchers.IO) {
-                try { FaceDetector.detectBoxes(path) } catch (e: Exception) { emptyList() }
+            val (normal, highlighted) = withContext(Dispatchers.IO) {
+                val boxes = VectorStore.getFaceBoxesForPath(path)
+                val n = mutableListOf<RectF>()
+                val h = mutableListOf<RectF>()
+                for (box in boxes) {
+                    if (highlightClusterId >= 0 && box.clusterId == highlightClusterId) h.add(box.bbox)
+                    else n.add(box.bbox)
+                }
+                n to h
             }
-            faceBoxCache[path] = boxes
-            if (showFaces) holders[position]?.overlay?.setFaces(boxes)
+            faceBoxCache[path] = normal to highlighted
+            if (showFaces) holders[position]?.overlay?.setFaces(normal, highlighted)
         }
     }
 
@@ -177,12 +186,14 @@ class ImageDetailActivity : AppCompatActivity() {
     companion object {
         private const val EXTRA_PATHS = "paths"
         private const val EXTRA_INDEX = "index"
+        private const val EXTRA_HIGHLIGHT_CLUSTER_ID = "highlight_cluster_id"
 
-        fun open(context: Context, paths: List<String>, index: Int = 0) {
+        fun open(context: Context, paths: List<String>, index: Int = 0, highlightClusterId: Long = -1L) {
             context.startActivity(
                 Intent(context, ImageDetailActivity::class.java).apply {
                     putStringArrayListExtra(EXTRA_PATHS, ArrayList(paths))
                     putExtra(EXTRA_INDEX, index)
+                    putExtra(EXTRA_HIGHLIGHT_CLUSTER_ID, highlightClusterId)
                 }
             )
         }

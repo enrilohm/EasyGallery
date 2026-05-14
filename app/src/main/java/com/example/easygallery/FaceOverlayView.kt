@@ -14,10 +14,18 @@ class FaceOverlayView @JvmOverloads constructor(
 ) : View(context, attrs) {
 
     private var photoView: PhotoView? = null
-    private var faceRects: List<RectF> = emptyList()
+    private var normalRects: List<RectF> = emptyList()
+    private var highlightRects: List<RectF> = emptyList()
 
-    private val boxPaint = Paint().apply {
+    private val normalPaint = Paint().apply {
         color = Color.YELLOW
+        style = Paint.Style.STROKE
+        strokeWidth = 5f
+        isAntiAlias = true
+    }
+
+    private val highlightPaint = Paint().apply {
+        color = Color.GREEN
         style = Paint.Style.STROKE
         strokeWidth = 5f
         isAntiAlias = true
@@ -28,26 +36,31 @@ class FaceOverlayView @JvmOverloads constructor(
         pv.setOnMatrixChangeListener { invalidate() }
     }
 
-    fun setFaces(rects: List<RectF>) {
-        faceRects = rects
+    fun setFaces(normal: List<RectF>, highlighted: List<RectF> = emptyList()) {
+        normalRects = normal
+        highlightRects = highlighted
         invalidate()
     }
 
     fun clear() {
-        faceRects = emptyList()
+        normalRects = emptyList()
+        highlightRects = emptyList()
         invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
         val displayRect = photoView?.displayRect ?: return
-        for (face in faceRects) {
-            canvas.drawRect(
-                displayRect.left + face.left  * displayRect.width(),
-                displayRect.top  + face.top   * displayRect.height(),
-                displayRect.left + face.right * displayRect.width(),
-                displayRect.top  + face.bottom * displayRect.height(),
-                boxPaint
-            )
+        val dw = displayRect.width()
+        val dh = displayRect.height()
+        val dl = displayRect.left
+        val dt = displayRect.top
+        for (face in normalRects) {
+            canvas.drawRect(dl + face.left * dw, dt + face.top * dh,
+                            dl + face.right * dw, dt + face.bottom * dh, normalPaint)
+        }
+        for (face in highlightRects) {
+            canvas.drawRect(dl + face.left * dw, dt + face.top * dh,
+                            dl + face.right * dw, dt + face.bottom * dh, highlightPaint)
         }
     }
 }

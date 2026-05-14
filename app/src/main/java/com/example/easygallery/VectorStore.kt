@@ -4,13 +4,36 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import android.graphics.RectF
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 object VectorStore {
 
+    data class FaceEntry(
+        val id: Long,
+        val path: String,
+        val faceIndex: Int,
+        val embedding: FloatArray,
+        val bbox: RectF?,
+        val yaw: Float = 0f,
+        val pitch: Float = 0f,
+        val roll: Float = 0f,
+        val faceSize: Float = 0.1f,
+        val blurScore: Float = 100f,
+        val hasLandmarks: Boolean = true,
+    ) {
+        val isGoodQuality: Boolean get() =
+            kotlin.math.abs(yaw) < 30f &&
+            kotlin.math.abs(pitch) < 25f &&
+            faceSize > 0.04f &&
+            blurScore > 30f &&
+            hasLandmarks
+    }
+    data class StoredCluster(val clusterId: Long, val name: String?, val representativePath: String, val representativeBBox: RectF?, val paths: List<String>)
+
     private const val DB_NAME = "embeddings.db"
-    private const val DB_VERSION = 8
+    private const val DB_VERSION = 11
     private const val TABLE = "embeddings"
     private const val OCR_TABLE = "ocr"
     private const val OBJECTS_TABLE = "objects"
@@ -18,6 +41,8 @@ object VectorStore {
     private const val FAVORITES_TABLE = "favorites"
     private const val GPS_TABLE = "gps"
     private const val HIDDEN_TABLE = "hidden"
+    private const val CLUSTERS_TABLE = "face_clusters"
+    private const val CLUSTER_MEMBERS_TABLE = "face_cluster_members"
 
     private var helper: DbHelper? = null
 
@@ -231,14 +256,50 @@ object VectorStore {
         }
     }
 
-    fun insertFace(path: String, faceIndex: Int, embedding: FloatArray) {
+    fun insertFace(
+        path: String,
+        faceIndex: Int,
+        embedding: FloatArray,
+        bbox: RectF? = null,
+        yaw: Float? = null,
+        pitch: Float? = null,
+        roll: Float? = null,
+        faceSize: Float? = null,
+        blurScore: Float? = null,
+        hasLandmarks: Boolean? = null,
+    ) {
         val cv = ContentValues().apply {
             put("path", path)
             put("face_index", faceIndex)
             put("embedding", embedding.toByteArray())
+            if (bbox != null) {
+                put("bbox_left", bbox.left)
+                put("bbox_top", bbox.top)
+                put("bbox_right", bbox.right)
+                put("bbox_bottom", bbox.bottom)
+            }
+            if (yaw != null) put("yaw", yaw)
+            if (pitch != null) put("pitch", pitch)
+            if (roll != null) put("roll", roll)
+            if (faceSize != null) put("face_size", faceSize)
+            if (blurScore != null) put("blur_score", blurScore)
+            if (hasLandmarks != null) put("has_landmarks", if (hasLandmarks) 1 else 0)
         }
         helper!!.writableDatabase
             .insertWithOnConflict(FACES_TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE)
+    }
+
+    fun clearFaces() {
+        val db = helper!!.writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete(CLUSTER_MEMBERS_TABLE, null, null)
+            db.delete(CLUSTERS_TABLE, null, null)
+            db.delete(FACES_TABLE, null, null)
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
     }
 
     fun countFaceEntries(): Int {
@@ -264,22 +325,139 @@ object VectorStore {
         return scored.sortedByDescending { it.first }.take(topK).map { it.second }.distinct()
     }
 
-    /** Returns all face embeddings with path and row id, skipping sentinel no-face entries. */
-    fun getAllFaceEmbeddings(): List<Triple<Long, String, FloatArray>> {
+    /** Returns all face embeddings with metadata, skipping sentinel no-face entries. */
+    fun getAllFaceEmbeddings(): List<FaceEntry> {
         val db = helper!!.readableDatabase
-        val result = mutableListOf<Triple<Long, String, FloatArray>>()
+        val result = mutableListOf<FaceEntry>()
         db.rawQuery(
-            "SELECT id, path, embedding FROM $FACES_TABLE WHERE face_index >= 0 AND length(embedding) > 0",
+            """SELECT id, path, face_index, embedding,
+                      bbox_left, bbox_top, bbox_right, bbox_bottom,
+                      yaw, pitch, roll, face_size, blur_score, has_landmarks
+               FROM $FACES_TABLE WHERE face_index >= 0 AND length(embedding) > 0""",
             null
         ).use { cursor ->
             while (cursor.moveToNext()) {
-                val id   = cursor.getLong(0)
-                val path = cursor.getString(1)
-                val emb  = cursor.getBlob(2).toFloatArray()
-                result.add(Triple(id, path, emb))
+                val id        = cursor.getLong(0)
+                val path      = cursor.getString(1)
+                val faceIndex = cursor.getInt(2)
+                val emb       = cursor.getBlob(3).toFloatArray()
+                val bbox = if (cursor.isNull(4)) null else RectF(
+                    cursor.getFloat(4), cursor.getFloat(5),
+                    cursor.getFloat(6), cursor.getFloat(7)
+                )
+                result.add(FaceEntry(
+                    id           = id,
+                    path         = path,
+                    faceIndex    = faceIndex,
+                    embedding    = emb,
+                    bbox         = bbox,
+                    yaw          = if (cursor.isNull(8))  0f    else cursor.getFloat(8),
+                    pitch        = if (cursor.isNull(9))  0f    else cursor.getFloat(9),
+                    roll         = if (cursor.isNull(10)) 0f    else cursor.getFloat(10),
+                    faceSize     = if (cursor.isNull(11)) 0.1f  else cursor.getFloat(11),
+                    blurScore    = if (cursor.isNull(12)) 100f  else cursor.getFloat(12),
+                    hasLandmarks = if (cursor.isNull(13)) true  else cursor.getInt(13) != 0,
+                ))
             }
         }
         return result
+    }
+
+    /** Returns only faces that pass all quality checks, for use in clustering. */
+    fun getAllGoodFaceEmbeddings(): List<FaceEntry> = getAllFaceEmbeddings().filter { it.isGoodQuality }
+
+    // --- Face boxes ---
+
+    data class FaceBox(val bbox: RectF, val clusterId: Long?)
+
+    fun getFaceBoxesForPath(path: String): List<FaceBox> {
+        val db = helper!!.readableDatabase
+        val result = mutableListOf<FaceBox>()
+        db.rawQuery("""
+            SELECT f.bbox_left, f.bbox_top, f.bbox_right, f.bbox_bottom, m.cluster_id
+            FROM $FACES_TABLE f
+            LEFT JOIN $CLUSTER_MEMBERS_TABLE m ON f.id = m.face_id
+            WHERE f.path = ? AND f.face_index >= 0 AND f.bbox_left IS NOT NULL
+        """.trimIndent(), arrayOf(path)).use { cursor ->
+            while (cursor.moveToNext()) {
+                val bbox = RectF(
+                    cursor.getFloat(0), cursor.getFloat(1),
+                    cursor.getFloat(2), cursor.getFloat(3)
+                )
+                val clusterId = if (cursor.isNull(4)) null else cursor.getLong(4)
+                result.add(FaceBox(bbox, clusterId))
+            }
+        }
+        return result
+    }
+
+    // --- Clusters ---
+
+    fun hasClusters(): Boolean {
+        val db = helper!!.readableDatabase
+        db.rawQuery("SELECT 1 FROM $CLUSTERS_TABLE LIMIT 1", null).use { return it.moveToFirst() }
+    }
+
+    fun storeClusters(clusters: List<FaceClusterer.FaceCluster>) {
+        val db = helper!!.writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete(CLUSTER_MEMBERS_TABLE, null, null)
+            db.delete(CLUSTERS_TABLE, null, null)
+            for (cluster in clusters) {
+                val cv = ContentValues().apply {
+                    put("representative_face_id", cluster.representativeFaceId)
+                }
+                val clusterId = db.insert(CLUSTERS_TABLE, null, cv)
+                for (faceId in cluster.memberFaceIds) {
+                    val mcv = ContentValues().apply {
+                        put("face_id", faceId)
+                        put("cluster_id", clusterId)
+                    }
+                    db.insertWithOnConflict(CLUSTER_MEMBERS_TABLE, null, mcv, SQLiteDatabase.CONFLICT_IGNORE)
+                }
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+
+    fun getStoredClusters(): List<StoredCluster> {
+        val db = helper!!.readableDatabase
+        val clusterPaths = mutableMapOf<Long, MutableList<String>>()
+        val clusterMeta  = mutableMapOf<Long, Triple<String?, String, RectF?>>() // clusterId → (name, repPath, repBBox)
+
+        db.rawQuery("""
+            SELECT c.cluster_id, c.name,
+                   rf.path,
+                   rf.bbox_left, rf.bbox_top, rf.bbox_right, rf.bbox_bottom,
+                   mf.path AS member_path
+            FROM $CLUSTERS_TABLE c
+            JOIN $FACES_TABLE rf ON c.representative_face_id = rf.id
+            JOIN $CLUSTER_MEMBERS_TABLE m ON c.cluster_id = m.cluster_id
+            JOIN $FACES_TABLE mf ON m.face_id = mf.id
+        """.trimIndent(), null).use { cursor ->
+            while (cursor.moveToNext()) {
+                val clusterId  = cursor.getLong(0)
+                val name       = if (cursor.isNull(1)) null else cursor.getString(1)
+                val repPath    = cursor.getString(2)
+                val repBBox    = if (cursor.isNull(3)) null else RectF(
+                    cursor.getFloat(3), cursor.getFloat(4),
+                    cursor.getFloat(5), cursor.getFloat(6)
+                )
+                val memberPath = cursor.getString(7)
+                clusterMeta.getOrPut(clusterId) { Triple(name, repPath, repBBox) }
+                clusterPaths.getOrPut(clusterId) { mutableListOf() }.add(memberPath)
+            }
+        }
+
+        return clusterMeta.entries
+            .map { (id, meta) ->
+                StoredCluster(id, meta.first, meta.second, meta.third,
+                    clusterPaths[id]?.distinct() ?: emptyList())
+            }
+            .sortedByDescending { it.paths.size }
     }
 
     // --- GPS ---
@@ -428,7 +606,7 @@ object VectorStore {
             db.execSQL("CREATE TABLE $TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, embedding BLOB NOT NULL)")
             db.execSQL("CREATE TABLE $OCR_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, ocr_text TEXT)")
             db.execSQL("CREATE TABLE $OBJECTS_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, labels TEXT)")
-            db.execSQL("CREATE TABLE $FACES_TABLE (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, face_index INTEGER NOT NULL, embedding BLOB NOT NULL)")
+            db.execSQL("CREATE TABLE $FACES_TABLE (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, face_index INTEGER NOT NULL, embedding BLOB NOT NULL, bbox_left REAL, bbox_top REAL, bbox_right REAL, bbox_bottom REAL, yaw REAL, pitch REAL, roll REAL, face_size REAL, blur_score REAL, has_landmarks INTEGER)")
             db.execSQL("CREATE UNIQUE INDEX idx_faces_path_face ON $FACES_TABLE (path, face_index)")
             db.execSQL("CREATE INDEX idx_embeddings_path ON $TABLE (path)")
             db.execSQL("CREATE INDEX idx_ocr_path ON $OCR_TABLE (path)")
@@ -436,6 +614,9 @@ object VectorStore {
             db.execSQL("CREATE TABLE $FAVORITES_TABLE (path TEXT PRIMARY KEY)")
             db.execSQL("CREATE TABLE $GPS_TABLE (path TEXT PRIMARY KEY, lat REAL, lon REAL)")
             db.execSQL("CREATE TABLE $HIDDEN_TABLE (path TEXT PRIMARY KEY)")
+            db.execSQL("CREATE TABLE $CLUSTERS_TABLE (cluster_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, representative_face_id INTEGER NOT NULL)")
+            db.execSQL("CREATE TABLE $CLUSTER_MEMBERS_TABLE (face_id INTEGER PRIMARY KEY, cluster_id INTEGER NOT NULL)")
+            db.execSQL("CREATE INDEX idx_cluster_members_cluster ON $CLUSTER_MEMBERS_TABLE (cluster_id)")
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -462,6 +643,25 @@ object VectorStore {
             }
             if (oldVersion < 8) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS $HIDDEN_TABLE (path TEXT PRIMARY KEY)")
+            }
+            if (oldVersion < 9) {
+                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN bbox_left REAL")
+                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN bbox_top REAL")
+                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN bbox_right REAL")
+                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN bbox_bottom REAL")
+            }
+            if (oldVersion < 10) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS $CLUSTERS_TABLE (cluster_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, representative_face_id INTEGER NOT NULL)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS $CLUSTER_MEMBERS_TABLE (face_id INTEGER PRIMARY KEY, cluster_id INTEGER NOT NULL)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS idx_cluster_members_cluster ON $CLUSTER_MEMBERS_TABLE (cluster_id)")
+            }
+            if (oldVersion < 11) {
+                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN yaw REAL")
+                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN pitch REAL")
+                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN roll REAL")
+                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN face_size REAL")
+                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN blur_score REAL")
+                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN has_landmarks INTEGER")
             }
         }
     }
