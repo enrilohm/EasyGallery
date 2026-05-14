@@ -3,6 +3,7 @@ package com.example.easygallery
 import android.content.Context
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import androidx.exifinterface.media.ExifInterface
@@ -69,18 +70,32 @@ class MapFragment : Fragment() {
 
             val clusterer = object : RadiusMarkerClusterer(requireContext()) {
                 override fun buildClusterMarker(cluster: StaticCluster, mapView: MapView): Marker {
-                    return super.buildClusterMarker(cluster, mapView).also { m ->
-                        m.setOnMarkerClickListener { _, _ ->
-                            val entries = (0 until cluster.size).mapNotNull { i ->
-                                cluster.getItem(i).relatedObject as? GalleryViewModel.ImageEntry
+                    val styled = super.buildClusterMarker(cluster, mapView)
+                    return object : Marker(mapView) {
+                        init {
+                            position = styled.position
+                            icon = styled.icon
+                            setAnchor(ANCHOR_CENTER, ANCHOR_CENTER)
+                            setOnMarkerClickListener { _, _ ->
+                                val entries = (0 until cluster.size).mapNotNull { i ->
+                                    cluster.getItem(i).relatedObject as? GalleryViewModel.ImageEntry
+                                }
+                                ClusterImagesSheet.show(parentFragmentManager, entries)
+                                true
                             }
-                            ClusterImagesSheet.show(parentFragmentManager, entries)
-                            true
+                        }
+                        override fun onLongPress(event: MotionEvent, mapView: MapView): Boolean {
+                            if (!hitTest(event, mapView)) return false
+                            val lats = (0 until cluster.size).map { cluster.getItem(it).position.latitude }
+                            val lons = (0 until cluster.size).map { cluster.getItem(it).position.longitude }
+                            val box = BoundingBox(lats.max(), lons.max(), lats.min(), lons.min())
+                            mapView.zoomToBoundingBox(box.increaseByScale(1.5f), true)
+                            return true
                         }
                     }
                 }
                 override fun zoomOnCluster(mapView: MapView, cluster: StaticCluster) {
-                    // handled by click listener instead
+                    // zoom handled by long press instead
                 }
             }
             points.forEach { (lat, lon, entry) ->
