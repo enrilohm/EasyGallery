@@ -59,13 +59,24 @@ class MapFragment : Fragment() {
         val map = mapView ?: return
         markersJob = viewLifecycleOwner.lifecycleScope.launch {
             val points = withContext(Dispatchers.IO) {
-                entries.mapNotNull { entry ->
+                val entryByPath = entries.associateBy { it.path }
+
+                // Paths already checked (includes no-GPS sentinels with null lat/lon)
+                val indexedPaths = VectorStore.getIndexedGpsPaths()
+
+                // For uncached paths read EXIF, store result (null = no GPS sentinel)
+                entries.filter { it.path !in indexedPaths }.forEach { entry ->
                     try {
-                        ExifInterface(entry.path).latLong?.let { (lat, lon) ->
-                            Triple(lat, lon, entry)
-                        }
-                    } catch (_: Exception) { null }
+                        val ll = ExifInterface(entry.path).latLong
+                        VectorStore.insertGps(entry.path, ll?.get(0), ll?.get(1))
+                    } catch (_: Exception) {
+                        VectorStore.insertGps(entry.path, null, null)
+                    }
                 }
+
+                // All GPS points from DB, filtered to current entries
+                VectorStore.getGpsPoints()
+                    .mapNotNull { (path, lat, lon) -> entryByPath[path]?.let { Triple(lat, lon, it) } }
             }
 
             val clusterer = object : RadiusMarkerClusterer(requireContext()) {

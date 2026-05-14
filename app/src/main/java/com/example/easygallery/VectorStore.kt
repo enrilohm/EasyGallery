@@ -10,12 +10,13 @@ import java.nio.ByteOrder
 object VectorStore {
 
     private const val DB_NAME = "embeddings.db"
-    private const val DB_VERSION = 6
+    private const val DB_VERSION = 7
     private const val TABLE = "embeddings"
     private const val OCR_TABLE = "ocr"
     private const val OBJECTS_TABLE = "objects"
     private const val FACES_TABLE = "faces"
     private const val FAVORITES_TABLE = "favorites"
+    private const val GPS_TABLE = "gps"
 
     private var helper: DbHelper? = null
 
@@ -280,6 +281,45 @@ object VectorStore {
         return result
     }
 
+    // --- GPS ---
+
+    fun hasGpsEntry(path: String): Boolean {
+        val db = helper!!.readableDatabase
+        db.rawQuery("SELECT 1 FROM $GPS_TABLE WHERE path = ?", arrayOf(path)).use {
+            return it.moveToFirst()
+        }
+    }
+
+    fun insertGps(path: String, lat: Double?, lon: Double?) {
+        val cv = ContentValues().apply {
+            put("path", path)
+            if (lat != null) put("lat", lat) else putNull("lat")
+            if (lon != null) put("lon", lon) else putNull("lon")
+        }
+        helper!!.writableDatabase
+            .insertWithOnConflict(GPS_TABLE, null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    fun getGpsPoints(): List<Triple<String, Double, Double>> {
+        val db = helper!!.readableDatabase
+        val result = mutableListOf<Triple<String, Double, Double>>()
+        db.rawQuery("SELECT path, lat, lon FROM $GPS_TABLE WHERE lat IS NOT NULL AND lon IS NOT NULL", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                result.add(Triple(cursor.getString(0), cursor.getDouble(1), cursor.getDouble(2)))
+            }
+        }
+        return result
+    }
+
+    fun getIndexedGpsPaths(): Set<String> {
+        val db = helper!!.readableDatabase
+        val result = mutableSetOf<String>()
+        db.rawQuery("SELECT path FROM $GPS_TABLE", null).use { cursor ->
+            while (cursor.moveToNext()) result.add(cursor.getString(0))
+        }
+        return result
+    }
+
     // --- Favorites ---
 
     fun isFavorite(path: String): Boolean {
@@ -365,6 +405,7 @@ object VectorStore {
             db.execSQL("CREATE INDEX idx_ocr_path ON $OCR_TABLE (path)")
             db.execSQL("CREATE INDEX idx_objects_path ON $OBJECTS_TABLE (path)")
             db.execSQL("CREATE TABLE $FAVORITES_TABLE (path TEXT PRIMARY KEY)")
+            db.execSQL("CREATE TABLE $GPS_TABLE (path TEXT PRIMARY KEY, lat REAL, lon REAL)")
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -385,6 +426,9 @@ object VectorStore {
             }
             if (oldVersion < 6) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS $FAVORITES_TABLE (path TEXT PRIMARY KEY)")
+            }
+            if (oldVersion < 7) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS $GPS_TABLE (path TEXT PRIMARY KEY, lat REAL, lon REAL)")
             }
         }
     }
