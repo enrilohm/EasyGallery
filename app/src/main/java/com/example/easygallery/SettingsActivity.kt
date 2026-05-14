@@ -392,21 +392,22 @@ class SettingsActivity : AppCompatActivity() {
             when (state) {
                 is FaceModelManager.State.NotDownloaded -> {
                     faceModelProgressBar.visibility = View.GONE
-                    faceModelStatusText.text = "Not downloaded (~13 MB)"
+                    faceModelStatusText.text = "Not downloaded (~15 MB)"
                     faceModelActionButton.text = "Download"
                     faceModelActionButton.isEnabled = true
                     faceProcessingSection.visibility = View.GONE
                 }
                 is FaceModelManager.State.Downloading -> {
                     faceModelProgressBar.visibility = View.VISIBLE
+                    val prefix = if (state.file.isNotEmpty()) "${state.file}: " else ""
                     if (state.totalMb > 0) {
                         faceModelProgressBar.isIndeterminate = false
                         faceModelProgressBar.max = state.totalMb.toInt()
                         faceModelProgressBar.progress = state.downloadedMb.toInt()
-                        faceModelStatusText.text = "%.1f / %.1f MB".format(state.downloadedMb, state.totalMb)
+                        faceModelStatusText.text = "$prefix%.1f / %.1f MB".format(state.downloadedMb, state.totalMb)
                     } else {
                         faceModelProgressBar.isIndeterminate = true
-                        faceModelStatusText.text = "%.1f MB…".format(state.downloadedMb)
+                        faceModelStatusText.text = "$prefix%.1f MB…".format(state.downloadedMb)
                     }
                     faceModelActionButton.text = "Cancel"
                     faceModelActionButton.isEnabled = true

@@ -40,6 +40,7 @@ object FaceIndexManager {
             _isRunning.postValue(true)
             VectorStore.init(appContext)
             FaceEncoder.load(appContext)
+            FaceDetector.init(appContext)
 
             val allPaths = queryImagePaths(appContext)
             val pending = allPaths.filter { !VectorStore.hasFaceEntry(it) }

@@ -33,6 +33,9 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+    androidResources {
+        noCompress += "tflite"
+    }
 }
 
 dependencies {
@@ -50,7 +53,7 @@ dependencies {
     implementation(libs.androidx.exifinterface)
     implementation(libs.onnxruntime.android)
     implementation(libs.mlkit.text.recognition)
-    implementation(libs.mlkit.face.detection)
+    implementation(libs.tensorflow.lite)
     implementation(libs.osmdroid)
     implementation(libs.osmbonuspack)
     implementation(libs.photoview)

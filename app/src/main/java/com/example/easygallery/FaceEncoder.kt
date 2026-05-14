@@ -27,7 +27,7 @@ object FaceEncoder {
             } catch (e: OrtException) {
                 android.util.Log.w(TAG, "NNAPI unavailable, using CPU: ${e.message}")
             }
-            session = env.createSession(FaceModelManager.modelFile(context).absolutePath, opts)
+            session = env.createSession(FaceModelManager.encoderFile(context).absolutePath, opts)
             android.util.Log.d(TAG, "Inputs:  ${session!!.inputNames}")
             android.util.Log.d(TAG, "Outputs: ${session!!.outputNames}")
         } catch (t: Throwable) {
