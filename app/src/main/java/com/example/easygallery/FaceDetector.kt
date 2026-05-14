@@ -36,6 +36,7 @@ object FaceDetector {
         val faceRelativeSize: Float,
         val blurScore: Float,
         val hasLandmarks: Boolean,
+        val detectionScore: Float,
     )
 
     fun detect(imagePath: String): List<DetectedFace> {
@@ -64,6 +65,7 @@ object FaceDetector {
                 faceRelativeSize = (det.box[2] - det.box[0]).toFloat() / w,
                 blurScore        = laplacianVariance(aligned),
                 hasLandmarks     = true,
+                detectionScore   = det.score,
             )
         }
     }

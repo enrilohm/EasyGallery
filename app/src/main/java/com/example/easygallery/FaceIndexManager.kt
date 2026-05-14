@@ -62,16 +62,17 @@ object FaceIndexManager {
                                     val embedding = FaceEncoder.encode(face.crop)
                                     if (embedding != null) {
                                         VectorStore.insertFace(
-                                            path         = path,
-                                            faceIndex    = face.faceIndex,
-                                            embedding    = embedding,
-                                            bbox         = face.bounds,
-                                            yaw          = face.yaw,
-                                            pitch        = face.pitch,
-                                            roll         = face.roll,
-                                            faceSize     = face.faceRelativeSize,
-                                            blurScore    = face.blurScore,
-                                            hasLandmarks = face.hasLandmarks,
+                                            path           = path,
+                                            faceIndex      = face.faceIndex,
+                                            embedding      = embedding,
+                                            bbox           = face.bounds,
+                                            yaw            = face.yaw,
+                                            pitch          = face.pitch,
+                                            roll           = face.roll,
+                                            faceSize       = face.faceRelativeSize,
+                                            blurScore      = face.blurScore,
+                                            hasLandmarks   = face.hasLandmarks,
+                                            detectionScore = face.detectionScore,
                                         )
                                     }
                                 }

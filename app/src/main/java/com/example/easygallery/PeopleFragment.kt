@@ -66,10 +66,11 @@ class PeopleFragment : Fragment() {
             val (clusters, faceCount) = withContext(Dispatchers.IO) {
                 VectorStore.init(requireContext().applicationContext)
                 if (recluster || !VectorStore.hasClusters()) {
-                    val threshold = requireContext()
+                    val prefs = requireContext()
                         .getSharedPreferences("gallery_prefs", android.content.Context.MODE_PRIVATE)
-                        .getFloat("face_cluster_threshold", 0.45f)
-                    val faces = VectorStore.getAllGoodFaceEmbeddings()
+                    val threshold = prefs.getFloat("face_cluster_threshold", 0.45f)
+                    val minDetectionScore = prefs.getFloat("face_detection_score_threshold", 0.70f)
+                    val faces = VectorStore.getAllGoodFaceEmbeddings(minDetectionScore)
                     val result = FaceClusterer.cluster(faces, threshold)
                     VectorStore.storeClusters(result)
                 }

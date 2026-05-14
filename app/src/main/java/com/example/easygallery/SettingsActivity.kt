@@ -490,6 +490,16 @@ class SettingsActivity : AppCompatActivity() {
             clusterThresholdLabel.text = "Threshold: %.2f".format(value)
         }
 
+        val detectionScoreSlider = findViewById<Slider>(R.id.detectionScoreSlider)
+        val detectionScoreLabel = findViewById<TextView>(R.id.detectionScoreLabel)
+        val savedDetectionScore = prefs.getFloat("face_detection_score_threshold", 0.70f)
+        detectionScoreSlider.value = savedDetectionScore
+        detectionScoreLabel.text = "Min. detection score: %.2f".format(savedDetectionScore)
+        detectionScoreSlider.addOnChangeListener { _, value, _ ->
+            prefs.edit().putFloat("face_detection_score_threshold", value).apply()
+            detectionScoreLabel.text = "Min. detection score: %.2f".format(value)
+        }
+
         faceDetectionSwitch.isChecked = prefs.getBoolean("face_detection_enabled", false)
         faceDetectionSection.visibility = if (faceDetectionSwitch.isChecked) View.VISIBLE else View.GONE
         if (faceDetectionSwitch.isChecked) FaceModelManager.checkState(this)

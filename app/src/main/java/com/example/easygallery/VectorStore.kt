@@ -22,6 +22,7 @@ object VectorStore {
         val faceSize: Float = 0.1f,
         val blurScore: Float = 100f,
         val hasLandmarks: Boolean = true,
+        val detectionScore: Float = 1f,
     ) {
         val isGoodQuality: Boolean get() =
             kotlin.math.abs(yaw) < 30f &&
@@ -33,7 +34,7 @@ object VectorStore {
     data class StoredCluster(val clusterId: Long, val name: String?, val representativePath: String, val representativeBBox: RectF?, val paths: List<String>)
 
     private const val DB_NAME = "embeddings.db"
-    private const val DB_VERSION = 11
+    private const val DB_VERSION = 12
     private const val TABLE = "embeddings"
     private const val OCR_TABLE = "ocr"
     private const val OBJECTS_TABLE = "objects"
@@ -267,6 +268,7 @@ object VectorStore {
         faceSize: Float? = null,
         blurScore: Float? = null,
         hasLandmarks: Boolean? = null,
+        detectionScore: Float? = null,
     ) {
         val cv = ContentValues().apply {
             put("path", path)
@@ -284,6 +286,7 @@ object VectorStore {
             if (faceSize != null) put("face_size", faceSize)
             if (blurScore != null) put("blur_score", blurScore)
             if (hasLandmarks != null) put("has_landmarks", if (hasLandmarks) 1 else 0)
+            if (detectionScore != null) put("detection_score", detectionScore)
         }
         helper!!.writableDatabase
             .insertWithOnConflict(FACES_TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE)
@@ -332,7 +335,7 @@ object VectorStore {
         db.rawQuery(
             """SELECT id, path, face_index, embedding,
                       bbox_left, bbox_top, bbox_right, bbox_bottom,
-                      yaw, pitch, roll, face_size, blur_score, has_landmarks
+                      yaw, pitch, roll, face_size, blur_score, has_landmarks, detection_score
                FROM $FACES_TABLE WHERE face_index >= 0 AND length(embedding) > 0""",
             null
         ).use { cursor ->
@@ -346,17 +349,18 @@ object VectorStore {
                     cursor.getFloat(6), cursor.getFloat(7)
                 )
                 result.add(FaceEntry(
-                    id           = id,
-                    path         = path,
-                    faceIndex    = faceIndex,
-                    embedding    = emb,
-                    bbox         = bbox,
-                    yaw          = if (cursor.isNull(8))  0f    else cursor.getFloat(8),
-                    pitch        = if (cursor.isNull(9))  0f    else cursor.getFloat(9),
-                    roll         = if (cursor.isNull(10)) 0f    else cursor.getFloat(10),
-                    faceSize     = if (cursor.isNull(11)) 0.1f  else cursor.getFloat(11),
-                    blurScore    = if (cursor.isNull(12)) 100f  else cursor.getFloat(12),
-                    hasLandmarks = if (cursor.isNull(13)) true  else cursor.getInt(13) != 0,
+                    id             = id,
+                    path           = path,
+                    faceIndex      = faceIndex,
+                    embedding      = emb,
+                    bbox           = bbox,
+                    yaw            = if (cursor.isNull(8))  0f    else cursor.getFloat(8),
+                    pitch          = if (cursor.isNull(9))  0f    else cursor.getFloat(9),
+                    roll           = if (cursor.isNull(10)) 0f    else cursor.getFloat(10),
+                    faceSize       = if (cursor.isNull(11)) 0.1f  else cursor.getFloat(11),
+                    blurScore      = if (cursor.isNull(12)) 100f  else cursor.getFloat(12),
+                    hasLandmarks   = if (cursor.isNull(13)) true  else cursor.getInt(13) != 0,
+                    detectionScore = if (cursor.isNull(14)) 1f    else cursor.getFloat(14),
                 ))
             }
         }
@@ -364,7 +368,8 @@ object VectorStore {
     }
 
     /** Returns only faces that pass all quality checks, for use in clustering. */
-    fun getAllGoodFaceEmbeddings(): List<FaceEntry> = getAllFaceEmbeddings().filter { it.isGoodQuality }
+    fun getAllGoodFaceEmbeddings(minDetectionScore: Float = 0.70f): List<FaceEntry> =
+        getAllFaceEmbeddings().filter { it.isGoodQuality && it.detectionScore >= minDetectionScore }
 
     // --- Face boxes ---
 
@@ -606,7 +611,7 @@ object VectorStore {
             db.execSQL("CREATE TABLE $TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, embedding BLOB NOT NULL)")
             db.execSQL("CREATE TABLE $OCR_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, ocr_text TEXT)")
             db.execSQL("CREATE TABLE $OBJECTS_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, labels TEXT)")
-            db.execSQL("CREATE TABLE $FACES_TABLE (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, face_index INTEGER NOT NULL, embedding BLOB NOT NULL, bbox_left REAL, bbox_top REAL, bbox_right REAL, bbox_bottom REAL, yaw REAL, pitch REAL, roll REAL, face_size REAL, blur_score REAL, has_landmarks INTEGER)")
+            db.execSQL("CREATE TABLE $FACES_TABLE (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, face_index INTEGER NOT NULL, embedding BLOB NOT NULL, bbox_left REAL, bbox_top REAL, bbox_right REAL, bbox_bottom REAL, yaw REAL, pitch REAL, roll REAL, face_size REAL, blur_score REAL, has_landmarks INTEGER, detection_score REAL)")
             db.execSQL("CREATE UNIQUE INDEX idx_faces_path_face ON $FACES_TABLE (path, face_index)")
             db.execSQL("CREATE INDEX idx_embeddings_path ON $TABLE (path)")
             db.execSQL("CREATE INDEX idx_ocr_path ON $OCR_TABLE (path)")
@@ -662,6 +667,9 @@ object VectorStore {
                 db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN face_size REAL")
                 db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN blur_score REAL")
                 db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN has_landmarks INTEGER")
+            }
+            if (oldVersion < 12) {
+                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN detection_score REAL")
             }
         }
     }
