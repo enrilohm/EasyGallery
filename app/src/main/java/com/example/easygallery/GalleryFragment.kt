@@ -47,9 +47,6 @@ class GalleryFragment : Fragment() {
             },
             onImageClick = { _, index ->
                 ImageDetailActivity.open(requireContext(), adapter.currentPaths(), index)
-            },
-            onImageLongClick = { image ->
-                ImageInfoSheet.show(parentFragmentManager, image.uri, image.path)
             }
         )
 

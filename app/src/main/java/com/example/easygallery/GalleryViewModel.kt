@@ -12,7 +12,7 @@ import androidx.lifecycle.ViewModel
 class GalleryViewModel : ViewModel() {
 
     data class ImageEntry(val uri: Uri, val dir: String, val path: String)
-    data class FilterState(val favoritesOnly: Boolean = false)
+    data class FilterState(val favoritesOnly: Boolean = false, val showHidden: Boolean = false)
 
     var entries: List<ImageEntry> = emptyList()
         private set
@@ -24,8 +24,8 @@ class GalleryViewModel : ViewModel() {
     val filterState = MutableLiveData(FilterState())
 
     private var favoritePaths: Set<String> = emptySet()
+    private var hiddenPaths: Set<String> = emptySet()
 
-    // Internal LiveData that fires on every load/reload; filteredEntries derives from this.
     private val rawEntries = MutableLiveData<List<ImageEntry>>()
 
     val filteredEntries = MediatorLiveData<List<ImageEntry>>()
@@ -40,30 +40,64 @@ class GalleryViewModel : ViewModel() {
 
     fun applyFilters(paths: List<String>): List<String> {
         val state = filterState.value ?: return paths
-        return if (state.favoritesOnly) paths.filter { it in favoritePaths } else paths
+        var result = if (state.showHidden) paths else paths.filter { it !in hiddenPaths }
+        if (state.favoritesOnly) result = result.filter { it in favoritePaths }
+        return result
     }
 
     fun allowedPaths(): Set<String>? {
         val state = filterState.value ?: return null
-        return if (state.favoritesOnly) favoritePaths else null
+        return when {
+            state.favoritesOnly && !state.showHidden -> favoritePaths - hiddenPaths
+            state.favoritesOnly -> favoritePaths
+            else -> null
+        }
     }
 
     fun setFavoritesOnly(enabled: Boolean, context: Context) {
+        val current = filterState.value ?: FilterState()
         if (enabled) {
             Thread {
                 VectorStore.init(context.applicationContext)
                 favoritePaths = VectorStore.getFavoritePaths().toSet()
-                filterState.postValue(FilterState(favoritesOnly = true))
+                filterState.postValue(current.copy(favoritesOnly = true))
             }.start()
         } else {
             favoritePaths = emptySet()
-            filterState.value = FilterState(favoritesOnly = false)
+            filterState.value = current.copy(favoritesOnly = false)
         }
+    }
+
+    fun setShowHidden(show: Boolean, context: Context) {
+        val current = filterState.value ?: FilterState()
+        if (!show) {
+            Thread {
+                VectorStore.init(context.applicationContext)
+                hiddenPaths = VectorStore.getHiddenPaths().toSet()
+                filterState.postValue(current.copy(showHidden = false))
+            }.start()
+        } else {
+            filterState.value = current.copy(showHidden = true)
+        }
+    }
+
+    fun refreshHiddenPaths(context: Context) {
+        Thread {
+            VectorStore.init(context.applicationContext)
+            val newHidden = VectorStore.getHiddenPaths().toSet()
+            if (newHidden != hiddenPaths) {
+                hiddenPaths = newHidden
+                val raw = rawEntries.value ?: return@Thread
+                filteredEntries.postValue(applyFilterToEntries(raw))
+            }
+        }.start()
     }
 
     private fun applyFilterToEntries(list: List<ImageEntry>): List<ImageEntry> {
         val state = filterState.value ?: FilterState()
-        return if (state.favoritesOnly) list.filter { it.path in favoritePaths } else list
+        var result = if (state.showHidden) list else list.filter { it.path !in hiddenPaths }
+        if (state.favoritesOnly) result = result.filter { it.path in favoritePaths }
+        return result
     }
 
     fun load(resolver: ContentResolver) {
@@ -95,6 +129,7 @@ class GalleryViewModel : ViewModel() {
                     list.add(ImageEntry(uri, path.substringBeforeLast("/"), path))
                 }
             }
+            hiddenPaths = VectorStore.getHiddenPaths().toSet()
             entries = list
             @Suppress("DEPRECATION")
             rootPath = android.os.Environment.getExternalStorageDirectory().absolutePath

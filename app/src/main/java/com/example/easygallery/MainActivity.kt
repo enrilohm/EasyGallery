@@ -20,6 +20,10 @@ import kotlinx.coroutines.launch
 class MainActivity : AppCompatActivity() {
 
     private lateinit var viewModel: GalleryViewModel
+    private lateinit var viewPager: ViewPager2
+    private lateinit var tabLayout: TabLayout
+    private var tabMediator: TabLayoutMediator? = null
+    private var currentTabs: List<TabType> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -29,23 +33,10 @@ class MainActivity : AppCompatActivity() {
 
         viewModel = ViewModelProvider(this)[GalleryViewModel::class.java]
 
-        val viewPager = findViewById<ViewPager2>(R.id.viewPager)
-        viewPager.offscreenPageLimit = 5
+        viewPager = findViewById(R.id.viewPager)
         viewPager.isUserInputEnabled = false
-        viewPager.adapter = GalleryPagerAdapter(this)
 
-        val tabLayout = findViewById<TabLayout>(R.id.tabLayout)
-        TabLayoutMediator(tabLayout, viewPager) { tab, position ->
-            tab.text = when (position) {
-                0 -> "Gallery"
-                1 -> "Search"
-                2 -> "Objects"
-                3 -> "Map"
-                4 -> "People"
-                else -> "Filter"
-            }
-        }.attach()
-
+        tabLayout = findViewById(R.id.tabLayout)
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
             override fun onTabSelected(tab: TabLayout.Tab) {
                 viewPager.setCurrentItem(tab.position, false)
@@ -54,6 +45,7 @@ class MainActivity : AppCompatActivity() {
             override fun onTabReselected(tab: TabLayout.Tab) {}
         })
 
+        applyTabs()
         requestPermissionAndLoad()
 
         val clipEnabled = getSharedPreferences("gallery_prefs", MODE_PRIVATE)
@@ -63,6 +55,42 @@ class MainActivity : AppCompatActivity() {
                 ClipTextEncoder.load(applicationContext)
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        applyTabs()
+        viewModel.refreshHiddenPaths(this)
+    }
+
+    private fun buildTabs(): List<TabType> {
+        val prefs = getSharedPreferences("gallery_prefs", MODE_PRIVATE)
+        val clip  = prefs.getBoolean("clip_search_enabled", false)
+        val ocr   = prefs.getBoolean("ocr_enabled", false)
+        val obj   = prefs.getBoolean("object_detection_enabled", false)
+        val face  = prefs.getBoolean("face_detection_enabled", false)
+        return buildList {
+            add(TabType.GALLERY)
+            if (clip || ocr || obj) add(TabType.SEARCH)
+            if (obj) add(TabType.OBJECTS)
+            add(TabType.MAP)
+            if (face) add(TabType.PEOPLE)
+            add(TabType.FILTER)
+        }
+    }
+
+    private fun applyTabs() {
+        val newTabs = buildTabs()
+        if (newTabs == currentTabs) return
+        currentTabs = newTabs
+
+        tabMediator?.detach()
+        val adapter = GalleryPagerAdapter(this, newTabs)
+        viewPager.adapter = adapter
+        viewPager.offscreenPageLimit = maxOf(1, newTabs.size - 1)
+        tabMediator = TabLayoutMediator(tabLayout, viewPager) { tab, position ->
+            tab.text = newTabs[position].label
+        }.also { it.attach() }
     }
 
     override fun onSupportNavigateUp(): Boolean {

@@ -43,9 +43,6 @@ class SearchFragment : Fragment() {
             onImageClick = { _, position ->
                 val paths = adapter.currentPaths()
                 ImageDetailActivity.open(requireContext(), paths, position)
-            },
-            onImageLongClick = { image ->
-                ImageInfoSheet.show(parentFragmentManager, image.uri, image.path)
             }
         )
 

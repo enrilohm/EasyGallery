@@ -125,9 +125,6 @@ class ObjectBrowseFragment : Fragment() {
                 onFolderClick = {},
                 onImageClick = { _, index ->
                     ImageDetailActivity.open(requireContext(), imagePaths, index)
-                },
-                onImageLongClick = { image ->
-                    ImageInfoSheet.show(parentFragmentManager, image.uri, image.path)
                 }
             )
             adapter.updateItems(items)

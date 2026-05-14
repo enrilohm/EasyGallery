@@ -10,13 +10,14 @@ import java.nio.ByteOrder
 object VectorStore {
 
     private const val DB_NAME = "embeddings.db"
-    private const val DB_VERSION = 7
+    private const val DB_VERSION = 8
     private const val TABLE = "embeddings"
     private const val OCR_TABLE = "ocr"
     private const val OBJECTS_TABLE = "objects"
     private const val FACES_TABLE = "faces"
     private const val FAVORITES_TABLE = "favorites"
     private const val GPS_TABLE = "gps"
+    private const val HIDDEN_TABLE = "hidden"
 
     private var helper: DbHelper? = null
 
@@ -320,6 +321,34 @@ object VectorStore {
         return result
     }
 
+    // --- Hidden ---
+
+    fun isHidden(path: String): Boolean {
+        val db = helper!!.readableDatabase
+        db.rawQuery("SELECT 1 FROM $HIDDEN_TABLE WHERE path = ?", arrayOf(path)).use {
+            return it.moveToFirst()
+        }
+    }
+
+    fun setHidden(path: String, hidden: Boolean) {
+        val db = helper!!.writableDatabase
+        if (hidden) {
+            val cv = ContentValues().apply { put("path", path) }
+            db.insertWithOnConflict(HIDDEN_TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE)
+        } else {
+            db.delete(HIDDEN_TABLE, "path = ?", arrayOf(path))
+        }
+    }
+
+    fun getHiddenPaths(): List<String> {
+        val db = helper!!.readableDatabase
+        val paths = mutableListOf<String>()
+        db.rawQuery("SELECT path FROM $HIDDEN_TABLE", null).use { cursor ->
+            while (cursor.moveToNext()) paths.add(cursor.getString(0))
+        }
+        return paths
+    }
+
     // --- Favorites ---
 
     fun isFavorite(path: String): Boolean {
@@ -406,6 +435,7 @@ object VectorStore {
             db.execSQL("CREATE INDEX idx_objects_path ON $OBJECTS_TABLE (path)")
             db.execSQL("CREATE TABLE $FAVORITES_TABLE (path TEXT PRIMARY KEY)")
             db.execSQL("CREATE TABLE $GPS_TABLE (path TEXT PRIMARY KEY, lat REAL, lon REAL)")
+            db.execSQL("CREATE TABLE $HIDDEN_TABLE (path TEXT PRIMARY KEY)")
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -429,6 +459,9 @@ object VectorStore {
             }
             if (oldVersion < 7) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS $GPS_TABLE (path TEXT PRIMARY KEY, lat REAL, lon REAL)")
+            }
+            if (oldVersion < 8) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS $HIDDEN_TABLE (path TEXT PRIMARY KEY)")
             }
         }
     }

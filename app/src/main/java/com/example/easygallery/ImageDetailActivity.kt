@@ -11,6 +11,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.ImageButton
+import java.io.File
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -32,6 +33,7 @@ class ImageDetailActivity : AppCompatActivity() {
     private lateinit var paths: List<String>
     private lateinit var adapter: DetailPagerAdapter
     private lateinit var favoriteButton: ImageButton
+    private lateinit var hiddenButton: ImageButton
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,12 +57,15 @@ class ImageDetailActivity : AppCompatActivity() {
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
         favoriteButton = findViewById(R.id.favoriteButton)
+        hiddenButton = findViewById(R.id.hiddenButton)
         updateFavoriteButton(paths[startIndex])
+        updateHiddenButton(paths[startIndex])
 
         pager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
                 if (showFaces) detectAndShowFaces(position)
                 updateFavoriteButton(paths[position])
+                updateHiddenButton(paths[position])
             }
         })
 
@@ -75,6 +80,20 @@ class ImageDetailActivity : AppCompatActivity() {
 
         findViewById<View>(R.id.closeButton).setOnClickListener { finish() }
 
+        findViewById<View>(R.id.infoButton).setOnClickListener {
+            val path = paths[pager.currentItem]
+            ImageInfoSheet.show(supportFragmentManager, Uri.fromFile(File(path)), path)
+        }
+
+        hiddenButton.setOnClickListener {
+            val path = paths[pager.currentItem]
+            lifecycleScope.launch(Dispatchers.IO) {
+                val nowHidden = !VectorStore.isHidden(path)
+                VectorStore.setHidden(path, nowHidden)
+                withContext(Dispatchers.Main) { updateHiddenButton(path) }
+            }
+        }
+
         val faceToggle = findViewById<ImageButton>(R.id.faceToggleButton)
         faceToggle.setOnClickListener {
             showFaces = !showFaces
@@ -83,6 +102,23 @@ class ImageDetailActivity : AppCompatActivity() {
                 detectAndShowFaces(pager.currentItem)
             } else {
                 holders[pager.currentItem]?.overlay?.clear()
+            }
+        }
+    }
+
+    private fun updateHiddenButton(path: String) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            val hidden = VectorStore.isHidden(path)
+            withContext(Dispatchers.Main) {
+                if (hidden) {
+                    hiddenButton.setImageResource(R.drawable.ic_eye_off)
+                    hiddenButton.setColorFilter(android.graphics.Color.parseColor("#FF4444"))
+                    hiddenButton.alpha = 1f
+                } else {
+                    hiddenButton.setImageResource(R.drawable.ic_eye)
+                    hiddenButton.clearColorFilter()
+                    hiddenButton.alpha = 0.8f
+                }
             }
         }
     }

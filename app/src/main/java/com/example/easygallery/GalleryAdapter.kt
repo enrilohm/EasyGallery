@@ -11,8 +11,7 @@ import coil.load
 
 class GalleryAdapter(
     private val onFolderClick: (GalleryItem.Folder) -> Unit,
-    private val onImageClick: (GalleryItem.Image, Int) -> Unit = { _, _ -> },
-    private val onImageLongClick: (GalleryItem.Image) -> Unit = {}
+    private val onImageClick: (GalleryItem.Image, Int) -> Unit = { _, _ -> }
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private var items: List<GalleryItem> = emptyList()
@@ -54,7 +53,6 @@ class GalleryAdapter(
                 (holder as ImageViewHolder).imageView.load(item.uri)
                 val imageIndex = items.take(position + 1).count { it is GalleryItem.Image } - 1
                 holder.itemView.setOnClickListener { onImageClick(item, imageIndex) }
-                holder.itemView.setOnLongClickListener { onImageLongClick(item); true }
             }
         }
     }

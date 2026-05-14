@@ -35,6 +35,26 @@
             android:src="@drawable/ic_face"
             android:alpha="0.4" />
 
+        <ImageButton
+            android:id="@+id/infoButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Image info"
+            android:padding="8dp"
+            android:src="@drawable/ic_info"
+            android:alpha="0.8" />
+
+        <ImageButton
+            android:id="@+id/hiddenButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Toggle hidden"
+            android:padding="8dp"
+            android:src="@drawable/ic_eye"
+            android:alpha="0.8" />
+
     </LinearLayout>
 
     <ImageButton

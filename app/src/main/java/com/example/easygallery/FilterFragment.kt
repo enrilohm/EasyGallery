@@ -17,14 +17,22 @@ class FilterFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         val favoritesSwitch = view.findViewById<SwitchMaterial>(R.id.favoritesSwitch)
+        val showHiddenSwitch = view.findViewById<SwitchMaterial>(R.id.showHiddenSwitch)
 
         viewModel.filterState.observe(viewLifecycleOwner) { state ->
             if (favoritesSwitch.isChecked != state.favoritesOnly) favoritesSwitch.isChecked = state.favoritesOnly
+            if (showHiddenSwitch.isChecked != state.showHidden) showHiddenSwitch.isChecked = state.showHidden
         }
 
         favoritesSwitch.setOnCheckedChangeListener { _, checked ->
             if (viewModel.filterState.value?.favoritesOnly != checked) {
                 viewModel.setFavoritesOnly(checked, requireContext())
+            }
+        }
+
+        showHiddenSwitch.setOnCheckedChangeListener { _, checked ->
+            if (viewModel.filterState.value?.showHidden != checked) {
+                viewModel.setShowHidden(checked, requireContext())
             }
         }
     }
