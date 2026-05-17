@@ -8,6 +8,10 @@ import android.provider.MediaStore
 import androidx.lifecycle.MediatorLiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 class GalleryViewModel : ViewModel() {
 
@@ -23,19 +27,31 @@ class GalleryViewModel : ViewModel() {
     val loaded = MutableLiveData(false)
     val filterState = MutableLiveData(FilterState())
 
-    private var favoritePaths: Set<String> = emptySet()
-    private var hiddenPaths: Set<String> = emptySet()
+    @Volatile private var favoritePaths: Set<String> = emptySet()
+    @Volatile private var hiddenPaths: Set<String> = emptySet()
 
     private val rawEntries = MutableLiveData<List<ImageEntry>>()
 
     val filteredEntries = MediatorLiveData<List<ImageEntry>>()
 
-    init {
-        filteredEntries.addSource(rawEntries) { filteredEntries.value = applyFilterToEntries(it) }
-        filteredEntries.addSource(filterState) {
-            val raw = rawEntries.value ?: return@addSource
-            filteredEntries.value = applyFilterToEntries(raw)
+    private var filterJob: Job? = null
+
+    private fun scheduleRecompute() {
+        val raw = rawEntries.value ?: return
+        val state = filterState.value ?: FilterState()
+        val hidden = hiddenPaths
+        val favorites = favoritePaths
+        filterJob?.cancel()
+        filterJob = viewModelScope.launch(Dispatchers.Default) {
+            var result = if (state.showHidden) raw else raw.filter { it.path !in hidden }
+            if (state.favoritesOnly) result = result.filter { it.path in favorites }
+            filteredEntries.postValue(result)
         }
+    }
+
+    init {
+        filteredEntries.addSource(rawEntries) { scheduleRecompute() }
+        filteredEntries.addSource(filterState) { scheduleRecompute() }
     }
 
     fun applyFilters(paths: List<String>): List<String> {
@@ -87,17 +103,9 @@ class GalleryViewModel : ViewModel() {
             val newHidden = VectorStore.getHiddenPaths().toSet()
             if (newHidden != hiddenPaths) {
                 hiddenPaths = newHidden
-                val raw = rawEntries.value ?: return@Thread
-                filteredEntries.postValue(applyFilterToEntries(raw))
+                filterState.postValue(filterState.value ?: FilterState())
             }
         }.start()
-    }
-
-    private fun applyFilterToEntries(list: List<ImageEntry>): List<ImageEntry> {
-        val state = filterState.value ?: FilterState()
-        var result = if (state.showHidden) list else list.filter { it.path !in hiddenPaths }
-        if (state.favoritesOnly) result = result.filter { it.path in favoritePaths }
-        return result
     }
 
     fun load(resolver: ContentResolver) {

@@ -1,12 +1,10 @@
 package com.example.easygallery
 
-import android.content.ContentValues
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
 import android.graphics.RectF
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
+import io.objectbox.Box
+import io.objectbox.BoxStore
+import io.objectbox.query.QueryBuilder.StringOrder
 
 object VectorStore {
 
@@ -31,231 +29,168 @@ object VectorStore {
             blurScore > 30f &&
             hasLandmarks
     }
-    data class StoredCluster(val clusterId: Long, val name: String?, val representativePath: String, val representativeBBox: RectF?, val paths: List<String>)
 
-    private const val DB_NAME = "embeddings.db"
-    private const val DB_VERSION = 12
-    private const val TABLE = "embeddings"
-    private const val OCR_TABLE = "ocr"
-    private const val OBJECTS_TABLE = "objects"
-    private const val FACES_TABLE = "faces"
-    private const val FAVORITES_TABLE = "favorites"
-    private const val GPS_TABLE = "gps"
-    private const val HIDDEN_TABLE = "hidden"
-    private const val CLUSTERS_TABLE = "face_clusters"
-    private const val CLUSTER_MEMBERS_TABLE = "face_cluster_members"
+    data class StoredCluster(
+        val clusterId: Long,
+        val name: String?,
+        val representativePath: String,
+        val representativeBBox: RectF?,
+        val paths: List<String>,
+    )
 
-    private var helper: DbHelper? = null
+    data class FaceBox(val bbox: RectF, val clusterId: Long?)
+
+    private lateinit var store: BoxStore
+    private lateinit var clipBox: Box<ClipEntity>
+    private lateinit var ocrBox: Box<OcrEntity>
+    private lateinit var objectsBox: Box<ObjectsEntity>
+    private lateinit var gpsBox: Box<GpsEntity>
+    private lateinit var metaBox: Box<ImageMetaEntity>
+    private lateinit var faceBox: Box<FaceEntity>
+    private lateinit var clusterBox: Box<FaceClusterEntity>
 
     fun init(context: Context) {
-        if (helper == null) {
-            helper = DbHelper(context.applicationContext)
-        }
+        if (::store.isInitialized) return
+        context.applicationContext.getDatabasePath("embeddings.db").delete()
+        store = MyObjectBox.builder()
+            .androidContext(context.applicationContext)
+            .build()
+        clipBox    = store.boxFor(ClipEntity::class.java)
+        ocrBox     = store.boxFor(OcrEntity::class.java)
+        objectsBox = store.boxFor(ObjectsEntity::class.java)
+        gpsBox     = store.boxFor(GpsEntity::class.java)
+        metaBox    = store.boxFor(ImageMetaEntity::class.java)
+        faceBox    = store.boxFor(FaceEntity::class.java)
+        clusterBox = store.boxFor(FaceClusterEntity::class.java)
     }
 
-    fun hasEmbeddingPath(path: String): Boolean {
-        val db = helper!!.readableDatabase
-        db.rawQuery("SELECT 1 FROM $TABLE WHERE path = ?", arrayOf(path)).use {
-            return it.moveToFirst()
-        }
-    }
+    // --- CLIP embeddings ---
 
-    fun hasHash(hash: String): Boolean {
-        val db = helper!!.readableDatabase
-        db.rawQuery("SELECT 1 FROM $TABLE WHERE hash = ?", arrayOf(hash)).use {
-            return it.moveToFirst()
-        }
-    }
+    fun hasEmbeddingPath(path: String): Boolean =
+        clipBox.query()
+            .equal(ClipEntity_.path, path, StringOrder.CASE_SENSITIVE)
+            .build().use { it.count() > 0 }
 
-    fun insert(hash: String, path: String, embedding: FloatArray) {
-        val db = helper!!.writableDatabase
-        val cv = ContentValues().apply {
-            put("hash", hash)
-            put("path", path)
-            put("embedding", embedding.toByteArray())
-        }
-        db.insertWithOnConflict(TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE)
-    }
+    fun insert(path: String, embedding: FloatArray) =
+        clipBox.put(ClipEntity(path = path, embedding = embedding))
 
-    fun updatePath(hash: String, path: String) {
-        val db = helper!!.writableDatabase
-        val cv = ContentValues().apply { put("path", path) }
-        db.update(TABLE, cv, "hash = ?", arrayOf(hash))
-    }
+    fun count(): Int = clipBox.count().toInt()
 
-    fun count(): Int {
-        val db = helper!!.readableDatabase
-        db.rawQuery("SELECT COUNT(*) FROM $TABLE", null).use {
-            return if (it.moveToFirst()) it.getInt(0) else 0
-        }
+    fun findSimilar(query: FloatArray, topK: Int, allowedPaths: Set<String>? = null): List<String> {
+        val results = clipBox.query()
+            .nearestNeighbors(ClipEntity_.embedding, query, topK * 3)
+            .build().use { it.findWithScores() }
+            .sortedBy { it.score }
+            .map { it.get().path }
+        return (if (allowedPaths != null) results.filter { it in allowedPaths } else results).take(topK)
     }
 
     // --- OCR ---
 
-    fun hasOcrPath(path: String): Boolean {
-        val db = helper!!.readableDatabase
-        db.rawQuery("SELECT 1 FROM $OCR_TABLE WHERE path = ?", arrayOf(path)).use {
-            return it.moveToFirst()
-        }
-    }
+    fun hasOcrPath(path: String): Boolean =
+        ocrBox.query()
+            .equal(OcrEntity_.path, path, StringOrder.CASE_SENSITIVE)
+            .build().use { it.count() > 0 }
 
-    fun hasOcr(hash: String): Boolean {
-        val db = helper!!.readableDatabase
-        db.rawQuery("SELECT 1 FROM $OCR_TABLE WHERE hash = ?", arrayOf(hash)).use {
-            return it.moveToFirst()
-        }
-    }
+    fun hasOcr(hash: String): Boolean =
+        ocrBox.query()
+            .equal(OcrEntity_.hash, hash, StringOrder.CASE_SENSITIVE)
+            .build().use { it.count() > 0 }
 
-    fun insertOcr(hash: String, path: String, text: String?) {
-        val cv = ContentValues().apply {
-            put("hash", hash)
-            put("path", path)
-            put("ocr_text", text)
-        }
-        helper!!.writableDatabase
-            .insertWithOnConflict(OCR_TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE)
-    }
+    fun insertOcr(hash: String, path: String, text: String?) =
+        ocrBox.put(OcrEntity(hash = hash, path = path, text = text ?: ""))
 
-    fun updateOcrPath(hash: String, path: String) {
-        val cv = ContentValues().apply { put("path", path) }
-        helper!!.writableDatabase.update(OCR_TABLE, cv, "hash = ?", arrayOf(hash))
-    }
+    fun updateOcrPath(hash: String, path: String) =
+        ocrBox.query()
+            .equal(OcrEntity_.hash, hash, StringOrder.CASE_SENSITIVE)
+            .build().use { it.findFirst() }
+            ?.also { it.path = path; ocrBox.put(it) }
 
-    fun ocrCount(): Int {
-        val db = helper!!.readableDatabase
-        db.rawQuery("SELECT COUNT(*) FROM $OCR_TABLE", null).use {
-            return if (it.moveToFirst()) it.getInt(0) else 0
-        }
-    }
+    fun ocrCount(): Int = ocrBox.count().toInt()
 
-    fun getOcrText(path: String): String? {
-        val db = helper!!.readableDatabase
-        db.rawQuery("SELECT ocr_text FROM $OCR_TABLE WHERE path = ?", arrayOf(path)).use { cursor ->
-            return if (cursor.moveToFirst()) cursor.getString(0) else null
-        }
-    }
+    fun getOcrText(path: String): String? =
+        ocrBox.query()
+            .equal(OcrEntity_.path, path, StringOrder.CASE_SENSITIVE)
+            .build().use { it.findFirst() }
+            ?.text?.ifEmpty { null }
 
-    fun findByText(query: String, limit: Int, allowedPaths: Set<String>? = null): List<String> {
-        val db = helper!!.readableDatabase
-        val paths = mutableListOf<String>()
-        db.rawQuery(
-            "SELECT path FROM $OCR_TABLE WHERE ocr_text LIKE ? AND ocr_text IS NOT NULL AND ocr_text != ''",
-            arrayOf("%$query%")
-        ).use { cursor ->
-            while (cursor.moveToNext() && paths.size < limit) {
-                val path = cursor.getString(0)
-                if (allowedPaths == null || path in allowedPaths) paths.add(path)
-            }
-        }
-        return paths
-    }
+    fun findByText(query: String, limit: Int, allowedPaths: Set<String>? = null): List<String> =
+        ocrBox.query()
+            .contains(OcrEntity_.text, query, StringOrder.CASE_INSENSITIVE)
+            .notEqual(OcrEntity_.text, "", StringOrder.CASE_INSENSITIVE)
+            .build().use { it.find() }
+            .map { it.path }
+            .let { if (allowedPaths != null) it.filter { p -> p in allowedPaths } else it }
+            .take(limit)
 
     // --- Objects ---
 
-    fun hasObjectsPath(path: String): Boolean {
-        val db = helper!!.readableDatabase
-        db.rawQuery("SELECT 1 FROM $OBJECTS_TABLE WHERE path = ?", arrayOf(path)).use {
-            return it.moveToFirst()
-        }
-    }
+    fun hasObjectsPath(path: String): Boolean =
+        objectsBox.query()
+            .equal(ObjectsEntity_.path, path, StringOrder.CASE_SENSITIVE)
+            .build().use { it.count() > 0 }
 
-    fun hasObjects(hash: String): Boolean {
-        val db = helper!!.readableDatabase
-        db.rawQuery("SELECT 1 FROM $OBJECTS_TABLE WHERE hash = ?", arrayOf(hash)).use {
-            return it.moveToFirst()
-        }
-    }
+    fun hasObjects(hash: String): Boolean =
+        objectsBox.query()
+            .equal(ObjectsEntity_.hash, hash, StringOrder.CASE_SENSITIVE)
+            .build().use { it.count() > 0 }
 
-    fun insertObjects(hash: String, path: String, labels: List<String>) {
-        val cv = ContentValues().apply {
-            put("hash", hash)
-            put("path", path)
-            put("labels", labels.joinToString(","))
-        }
-        helper!!.writableDatabase
-            .insertWithOnConflict(OBJECTS_TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE)
-    }
+    fun insertObjects(hash: String, path: String, labels: List<String>) =
+        objectsBox.put(ObjectsEntity(hash = hash, path = path, labels = labels.joinToString(",")))
 
-    fun updateObjectsPath(hash: String, path: String) {
-        val cv = ContentValues().apply { put("path", path) }
-        helper!!.writableDatabase.update(OBJECTS_TABLE, cv, "hash = ?", arrayOf(hash))
-    }
+    fun updateObjectsPath(hash: String, path: String) =
+        objectsBox.query()
+            .equal(ObjectsEntity_.hash, hash, StringOrder.CASE_SENSITIVE)
+            .build().use { it.findFirst() }
+            ?.also { it.path = path; objectsBox.put(it) }
 
-    fun objectsCount(): Int {
-        val db = helper!!.readableDatabase
-        db.rawQuery("SELECT COUNT(*) FROM $OBJECTS_TABLE", null).use {
-            return if (it.moveToFirst()) it.getInt(0) else 0
-        }
-    }
+    fun objectsCount(): Int = objectsBox.count().toInt()
 
-    fun getObjectLabels(path: String): List<String> {
-        val db = helper!!.readableDatabase
-        db.rawQuery("SELECT labels FROM $OBJECTS_TABLE WHERE path = ?", arrayOf(path)).use { cursor ->
-            if (!cursor.moveToFirst()) return emptyList()
-            val labels = cursor.getString(0) ?: return emptyList()
-            return labels.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-        }
-    }
+    fun getObjectLabels(path: String): List<String> =
+        objectsBox.query()
+            .equal(ObjectsEntity_.path, path, StringOrder.CASE_SENSITIVE)
+            .build().use { it.findFirst() }
+            ?.labels?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+            ?: emptyList()
 
-    fun getDistinctObjectLabels(): List<Pair<String, Int>> {
-        val db = helper!!.readableDatabase
-        val counts = mutableMapOf<String, Int>()
-        db.rawQuery("SELECT labels FROM $OBJECTS_TABLE WHERE labels IS NOT NULL AND labels != ''", null).use { cursor ->
-            while (cursor.moveToNext()) {
-                val row = cursor.getString(0) ?: continue
-                row.split(",").map { it.trim() }.filter { it.isNotEmpty() }.forEach { label ->
-                    counts[label] = (counts[label] ?: 0) + 1
-                }
-            }
-        }
-        return counts.entries.sortedByDescending { it.value }.map { it.key to it.value }
-    }
+    fun getDistinctObjectLabels(): List<Pair<String, Int>> =
+        objectsBox.all
+            .flatMap { it.labels.split(",").map(String::trim) }
+            .filter { it.isNotEmpty() }
+            .groupingBy { it }.eachCount()
+            .entries.sortedByDescending { it.value }
+            .map { it.key to it.value }
 
-    fun getExamplePath(label: String): String? {
-        val db = helper!!.readableDatabase
-        db.rawQuery(
-            "SELECT path FROM $OBJECTS_TABLE WHERE ',' || labels || ',' LIKE '%,' || ? || ',%' AND labels != '' LIMIT 1",
-            arrayOf(label)
-        ).use { cursor ->
-            return if (cursor.moveToFirst()) cursor.getString(0) else null
-        }
-    }
+    fun getExamplePath(label: String): String? =
+        objectsBox.query()
+            .contains(ObjectsEntity_.labels, label, StringOrder.CASE_INSENSITIVE)
+            .build().use { it.find() }
+            .firstOrNull { it.hasLabel(label) }
+            ?.path
 
-    fun getImagePathsByLabel(label: String): List<String> {
-        val db = helper!!.readableDatabase
-        val paths = mutableListOf<String>()
-        db.rawQuery(
-            "SELECT path FROM $OBJECTS_TABLE WHERE ',' || labels || ',' LIKE '%,' || ? || ',%' AND labels != ''",
-            arrayOf(label)
-        ).use { cursor ->
-            while (cursor.moveToNext()) paths.add(cursor.getString(0))
-        }
-        return paths
-    }
+    fun getImagePathsByLabel(label: String): List<String> =
+        objectsBox.query()
+            .contains(ObjectsEntity_.labels, label, StringOrder.CASE_INSENSITIVE)
+            .build().use { it.find() }
+            .filter { it.hasLabel(label) }
+            .map { it.path }
 
-    fun findByLabel(query: String, limit: Int, allowedPaths: Set<String>? = null): List<String> {
-        val db = helper!!.readableDatabase
-        val paths = mutableListOf<String>()
-        db.rawQuery(
-            "SELECT path FROM $OBJECTS_TABLE WHERE ',' || labels || ',' LIKE '%,' || ? || ',%' AND labels != ''",
-            arrayOf(query)
-        ).use { cursor ->
-            while (cursor.moveToNext() && paths.size < limit) {
-                val path = cursor.getString(0)
-                if (allowedPaths == null || path in allowedPaths) paths.add(path)
-            }
-        }
-        return paths
-    }
+    fun findByLabel(query: String, limit: Int, allowedPaths: Set<String>? = null): List<String> =
+        objectsBox.query()
+            .contains(ObjectsEntity_.labels, query, StringOrder.CASE_INSENSITIVE)
+            .build().use { it.find() }
+            .filter { it.hasLabel(query) }
+            .map { it.path }
+            .let { if (allowedPaths != null) it.filter { p -> p in allowedPaths } else it }
+            .take(limit)
 
     // --- Faces ---
 
-    fun hasFaceEntry(path: String): Boolean {
-        val db = helper!!.readableDatabase
-        db.rawQuery("SELECT 1 FROM $FACES_TABLE WHERE path = ?", arrayOf(path)).use {
-            return it.moveToFirst()
-        }
-    }
+    // Row existence means face detection has run for this path (even if no faces found).
+    fun hasFaceEntry(path: String): Boolean =
+        faceBox.query()
+            .equal(FaceEntity_.path, path, StringOrder.CASE_SENSITIVE)
+            .build().use { it.count() > 0 }
 
     fun insertFace(
         path: String,
@@ -270,407 +205,209 @@ object VectorStore {
         hasLandmarks: Boolean? = null,
         detectionScore: Float? = null,
     ) {
-        val cv = ContentValues().apply {
-            put("path", path)
-            put("face_index", faceIndex)
-            put("embedding", embedding.toByteArray())
-            if (bbox != null) {
-                put("bbox_left", bbox.left)
-                put("bbox_top", bbox.top)
-                put("bbox_right", bbox.right)
-                put("bbox_bottom", bbox.bottom)
-            }
-            if (yaw != null) put("yaw", yaw)
-            if (pitch != null) put("pitch", pitch)
-            if (roll != null) put("roll", roll)
-            if (faceSize != null) put("face_size", faceSize)
-            if (blurScore != null) put("blur_score", blurScore)
-            if (hasLandmarks != null) put("has_landmarks", if (hasLandmarks) 1 else 0)
-            if (detectionScore != null) put("detection_score", detectionScore)
-        }
-        helper!!.writableDatabase
-            .insertWithOnConflict(FACES_TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE)
+        faceBox.put(FaceEntity(
+            path           = path,
+            faceIndex      = faceIndex,
+            // faceIndex < 0 is a sentinel — no embedding stored, excluded from HNSW
+            embedding      = if (faceIndex >= 0) embedding.takeIf { it.isNotEmpty() } else null,
+            bboxLeft       = bbox?.left ?: 0f,
+            bboxTop        = bbox?.top ?: 0f,
+            bboxRight      = bbox?.right ?: 0f,
+            bboxBottom     = bbox?.bottom ?: 0f,
+            yaw            = yaw ?: 0f,
+            pitch          = pitch ?: 0f,
+            roll           = roll ?: 0f,
+            faceSize       = faceSize ?: 0f,
+            blurScore      = blurScore ?: 0f,
+            hasLandmarks   = hasLandmarks ?: false,
+            detectionScore = detectionScore ?: 0f,
+        ))
     }
 
-    fun clearFaces() {
-        val db = helper!!.writableDatabase
-        db.beginTransaction()
-        try {
-            db.delete(CLUSTER_MEMBERS_TABLE, null, null)
-            db.delete(CLUSTERS_TABLE, null, null)
-            db.delete(FACES_TABLE, null, null)
-            db.setTransactionSuccessful()
-        } finally {
-            db.endTransaction()
-        }
+    fun clearFaces() = store.callInTx {
+        clusterBox.removeAll()
+        faceBox.removeAll()
+        // hasFaceEntry() checks row existence, so removing all rows is sufficient
     }
 
-    fun countFaceEntries(): Int {
-        val db = helper!!.readableDatabase
-        db.rawQuery("SELECT COUNT(DISTINCT path) FROM $FACES_TABLE", null).use {
-            return if (it.moveToFirst()) it.getInt(0) else 0
-        }
-    }
+    fun countFaceEntries(): Int =
+        faceBox.query()
+            .notEqual(FaceEntity_.faceIndex, -1L)
+            .build().use { it.count().toInt() }
 
-    fun findSimilarFaces(query: FloatArray, topK: Int): List<String> {
-        val db = helper!!.readableDatabase
-        val scored = mutableListOf<Pair<Float, String>>()
-        db.rawQuery(
-            "SELECT path, embedding FROM $FACES_TABLE WHERE face_index >= 0 AND length(embedding) > 0",
-            null
-        ).use { cursor ->
-            while (cursor.moveToNext()) {
-                val path = cursor.getString(0)
-                val emb  = cursor.getBlob(1).toFloatArray()
-                scored.add(dotProduct(query, emb) to path)
-            }
-        }
-        return scored.sortedByDescending { it.first }.take(topK).map { it.second }.distinct()
-    }
+    fun findSimilarFaces(query: FloatArray, topK: Int): List<String> =
+        faceBox.query()
+            .nearestNeighbors(FaceEntity_.embedding, query, topK * 3)
+            .build().use { it.findWithScores() }
+            .sortedBy { it.score }
+            .map { it.get().path }
+            .distinct()
+            .take(topK)
 
-    /** Returns all face embeddings with metadata, skipping sentinel no-face entries. */
-    fun getAllFaceEmbeddings(): List<FaceEntry> {
-        val db = helper!!.readableDatabase
-        val result = mutableListOf<FaceEntry>()
-        db.rawQuery(
-            """SELECT id, path, face_index, embedding,
-                      bbox_left, bbox_top, bbox_right, bbox_bottom,
-                      yaw, pitch, roll, face_size, blur_score, has_landmarks, detection_score
-               FROM $FACES_TABLE WHERE face_index >= 0 AND length(embedding) > 0""",
-            null
-        ).use { cursor ->
-            while (cursor.moveToNext()) {
-                val id        = cursor.getLong(0)
-                val path      = cursor.getString(1)
-                val faceIndex = cursor.getInt(2)
-                val emb       = cursor.getBlob(3).toFloatArray()
-                val bbox = if (cursor.isNull(4)) null else RectF(
-                    cursor.getFloat(4), cursor.getFloat(5),
-                    cursor.getFloat(6), cursor.getFloat(7)
-                )
-                result.add(FaceEntry(
-                    id             = id,
-                    path           = path,
-                    faceIndex      = faceIndex,
-                    embedding      = emb,
-                    bbox           = bbox,
-                    yaw            = if (cursor.isNull(8))  0f    else cursor.getFloat(8),
-                    pitch          = if (cursor.isNull(9))  0f    else cursor.getFloat(9),
-                    roll           = if (cursor.isNull(10)) 0f    else cursor.getFloat(10),
-                    faceSize       = if (cursor.isNull(11)) 0.1f  else cursor.getFloat(11),
-                    blurScore      = if (cursor.isNull(12)) 100f  else cursor.getFloat(12),
-                    hasLandmarks   = if (cursor.isNull(13)) true  else cursor.getInt(13) != 0,
-                    detectionScore = if (cursor.isNull(14)) 1f    else cursor.getFloat(14),
-                ))
-            }
-        }
-        return result
-    }
+    fun getAllFaceEmbeddings(): List<FaceEntry> =
+        faceBox.all
+            .filter { it.faceIndex >= 0 }
+            .map { it.toFaceEntry() }
 
-    /** Returns only faces that pass all quality checks, for use in clustering. */
     fun getAllGoodFaceEmbeddings(minDetectionScore: Float = 0.70f): List<FaceEntry> =
         getAllFaceEmbeddings().filter { it.isGoodQuality && it.detectionScore >= minDetectionScore }
 
-    // --- Face boxes ---
-
-    data class FaceBox(val bbox: RectF, val clusterId: Long?)
-
-    fun getFaceBoxesForPath(path: String): List<FaceBox> {
-        val db = helper!!.readableDatabase
-        val result = mutableListOf<FaceBox>()
-        db.rawQuery("""
-            SELECT f.bbox_left, f.bbox_top, f.bbox_right, f.bbox_bottom, m.cluster_id
-            FROM $FACES_TABLE f
-            LEFT JOIN $CLUSTER_MEMBERS_TABLE m ON f.id = m.face_id
-            WHERE f.path = ? AND f.face_index >= 0 AND f.bbox_left IS NOT NULL
-        """.trimIndent(), arrayOf(path)).use { cursor ->
-            while (cursor.moveToNext()) {
-                val bbox = RectF(
-                    cursor.getFloat(0), cursor.getFloat(1),
-                    cursor.getFloat(2), cursor.getFloat(3)
+    fun getFaceBoxesForPath(path: String): List<FaceBox> =
+        faceBox.query()
+            .equal(FaceEntity_.path, path, StringOrder.CASE_SENSITIVE)
+            .greater(FaceEntity_.faceIndex, -1L)
+            .build().use { it.find() }
+            .map { face ->
+                FaceBox(
+                    bbox      = RectF(face.bboxLeft, face.bboxTop, face.bboxRight, face.bboxBottom),
+                    clusterId = if (face.clusterId == 0L) null else face.clusterId,
                 )
-                val clusterId = if (cursor.isNull(4)) null else cursor.getLong(4)
-                result.add(FaceBox(bbox, clusterId))
             }
-        }
-        return result
-    }
 
     // --- Clusters ---
 
-    fun hasClusters(): Boolean {
-        val db = helper!!.readableDatabase
-        db.rawQuery("SELECT 1 FROM $CLUSTERS_TABLE LIMIT 1", null).use { return it.moveToFirst() }
-    }
+    fun hasClusters(): Boolean = clusterBox.count() > 0
 
-    fun storeClusters(clusters: List<FaceClusterer.FaceCluster>) {
-        val db = helper!!.writableDatabase
-        db.beginTransaction()
-        try {
-            db.delete(CLUSTER_MEMBERS_TABLE, null, null)
-            db.delete(CLUSTERS_TABLE, null, null)
-            for (cluster in clusters) {
-                val cv = ContentValues().apply {
-                    put("representative_face_id", cluster.representativeFaceId)
-                }
-                val clusterId = db.insert(CLUSTERS_TABLE, null, cv)
-                for (faceId in cluster.memberFaceIds) {
-                    val mcv = ContentValues().apply {
-                        put("face_id", faceId)
-                        put("cluster_id", clusterId)
-                    }
-                    db.insertWithOnConflict(CLUSTER_MEMBERS_TABLE, null, mcv, SQLiteDatabase.CONFLICT_IGNORE)
-                }
+    fun storeClusters(clusters: List<FaceClusterer.FaceCluster>) = store.callInTx {
+        clusterBox.removeAll()
+
+        val updatedFaces = mutableListOf<FaceEntity>()
+        for (cluster in clusters) {
+            val clusterEntity = FaceClusterEntity(
+                representativePath        = cluster.representativePath,
+                representativeBboxLeft    = cluster.representativeBBox?.left ?: 0f,
+                representativeBboxTop     = cluster.representativeBBox?.top ?: 0f,
+                representativeBboxRight   = cluster.representativeBBox?.right ?: 0f,
+                representativeBboxBottom  = cluster.representativeBBox?.bottom ?: 0f,
+            )
+            clusterBox.put(clusterEntity)
+            for (faceId in cluster.memberFaceIds) {
+                val face = faceBox.get(faceId) ?: continue
+                face.clusterId = clusterEntity.id
+                updatedFaces.add(face)
             }
-            db.setTransactionSuccessful()
-        } finally {
-            db.endTransaction()
         }
+        faceBox.put(updatedFaces)
     }
 
-    fun getStoredClusters(): List<StoredCluster> {
-        val db = helper!!.readableDatabase
-        val clusterPaths = mutableMapOf<Long, MutableList<String>>()
-        val clusterMeta  = mutableMapOf<Long, Triple<String?, String, RectF?>>() // clusterId → (name, repPath, repBBox)
+    fun getClusterMemberBBoxes(): Map<Pair<String, Long>, RectF?> =
+        faceBox.query()
+            .greater(FaceEntity_.clusterId, 0L)
+            .greater(FaceEntity_.faceIndex, -1L)
+            .build().use { it.find() }
+            .associate { face ->
+                (face.path to face.clusterId) to
+                    RectF(face.bboxLeft, face.bboxTop, face.bboxRight, face.bboxBottom)
+                        .takeUnless { it.isEmpty }
+            }
 
-        db.rawQuery("""
-            SELECT c.cluster_id, c.name,
-                   rf.path,
-                   rf.bbox_left, rf.bbox_top, rf.bbox_right, rf.bbox_bottom,
-                   mf.path AS member_path
-            FROM $CLUSTERS_TABLE c
-            JOIN $FACES_TABLE rf ON c.representative_face_id = rf.id
-            JOIN $CLUSTER_MEMBERS_TABLE m ON c.cluster_id = m.cluster_id
-            JOIN $FACES_TABLE mf ON m.face_id = mf.id
-        """.trimIndent(), null).use { cursor ->
-            while (cursor.moveToNext()) {
-                val clusterId  = cursor.getLong(0)
-                val name       = if (cursor.isNull(1)) null else cursor.getString(1)
-                val repPath    = cursor.getString(2)
-                val repBBox    = if (cursor.isNull(3)) null else RectF(
-                    cursor.getFloat(3), cursor.getFloat(4),
-                    cursor.getFloat(5), cursor.getFloat(6)
+    fun getStoredClusters(): List<StoredCluster> =
+        clusterBox.all
+            .map { cluster ->
+                val members = faceBox.query()
+                    .equal(FaceEntity_.clusterId, cluster.id)
+                    .build().use { it.find() }
+                StoredCluster(
+                    clusterId          = cluster.id,
+                    name               = cluster.name.ifEmpty { null },
+                    representativePath = cluster.representativePath,
+                    representativeBBox = RectF(
+                        cluster.representativeBboxLeft, cluster.representativeBboxTop,
+                        cluster.representativeBboxRight, cluster.representativeBboxBottom,
+                    ),
+                    paths = members.map { it.path }.distinct(),
                 )
-                val memberPath = cursor.getString(7)
-                clusterMeta.getOrPut(clusterId) { Triple(name, repPath, repBBox) }
-                clusterPaths.getOrPut(clusterId) { mutableListOf() }.add(memberPath)
-            }
-        }
-
-        return clusterMeta.entries
-            .map { (id, meta) ->
-                StoredCluster(id, meta.first, meta.second, meta.third,
-                    clusterPaths[id]?.distinct() ?: emptyList())
             }
             .sortedByDescending { it.paths.size }
-    }
 
     // --- GPS ---
 
-    fun hasGpsEntry(path: String): Boolean {
-        val db = helper!!.readableDatabase
-        db.rawQuery("SELECT 1 FROM $GPS_TABLE WHERE path = ?", arrayOf(path)).use {
-            return it.moveToFirst()
-        }
-    }
+    // Row existence means GPS extraction has run for this path.
+    fun hasGpsEntry(path: String): Boolean =
+        gpsBox.query()
+            .equal(GpsEntity_.path, path, StringOrder.CASE_SENSITIVE)
+            .build().use { it.count() > 0 }
 
-    fun insertGps(path: String, lat: Double?, lon: Double?) {
-        val cv = ContentValues().apply {
-            put("path", path)
-            if (lat != null) put("lat", lat) else putNull("lat")
-            if (lon != null) put("lon", lon) else putNull("lon")
-        }
-        helper!!.writableDatabase
-            .insertWithOnConflict(GPS_TABLE, null, cv, SQLiteDatabase.CONFLICT_REPLACE)
-    }
+    fun insertGps(path: String, lat: Double?, lon: Double?) =
+        gpsBox.put(GpsEntity(
+            path   = path,
+            lat    = lat ?: 0.0,
+            lon    = lon ?: 0.0,
+            hasGps = lat != null && lon != null,
+        ))
 
-    fun getGpsPoints(): List<Triple<String, Double, Double>> {
-        val db = helper!!.readableDatabase
-        val result = mutableListOf<Triple<String, Double, Double>>()
-        db.rawQuery("SELECT path, lat, lon FROM $GPS_TABLE WHERE lat IS NOT NULL AND lon IS NOT NULL", null).use { cursor ->
-            while (cursor.moveToNext()) {
-                result.add(Triple(cursor.getString(0), cursor.getDouble(1), cursor.getDouble(2)))
-            }
-        }
-        return result
-    }
+    fun getGpsPoints(): List<Triple<String, Double, Double>> =
+        gpsBox.query()
+            .equal(GpsEntity_.hasGps, true)
+            .build().use { it.find() }
+            .map { Triple(it.path, it.lat, it.lon) }
 
-    fun getIndexedGpsPaths(): Set<String> {
-        val db = helper!!.readableDatabase
-        val result = mutableSetOf<String>()
-        db.rawQuery("SELECT path FROM $GPS_TABLE", null).use { cursor ->
-            while (cursor.moveToNext()) result.add(cursor.getString(0))
-        }
-        return result
-    }
+    fun getIndexedGpsPaths(): Set<String> =
+        gpsBox.all.map { it.path }.toSet()
 
     // --- Hidden ---
 
-    fun isHidden(path: String): Boolean {
-        val db = helper!!.readableDatabase
-        db.rawQuery("SELECT 1 FROM $HIDDEN_TABLE WHERE path = ?", arrayOf(path)).use {
-            return it.moveToFirst()
-        }
-    }
+    fun isHidden(path: String): Boolean =
+        metaBox.query()
+            .equal(ImageMetaEntity_.path, path, StringOrder.CASE_SENSITIVE)
+            .equal(ImageMetaEntity_.isHidden, true)
+            .build().use { it.count() > 0 }
 
-    fun setHidden(path: String, hidden: Boolean) {
-        val db = helper!!.writableDatabase
-        if (hidden) {
-            val cv = ContentValues().apply { put("path", path) }
-            db.insertWithOnConflict(HIDDEN_TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE)
-        } else {
-            db.delete(HIDDEN_TABLE, "path = ?", arrayOf(path))
-        }
-    }
+    fun setHidden(path: String, hidden: Boolean) =
+        upsertMeta(path) { isHidden = hidden }
 
-    fun getHiddenPaths(): List<String> {
-        val db = helper!!.readableDatabase
-        val paths = mutableListOf<String>()
-        db.rawQuery("SELECT path FROM $HIDDEN_TABLE", null).use { cursor ->
-            while (cursor.moveToNext()) paths.add(cursor.getString(0))
-        }
-        return paths
-    }
+    fun getHiddenPaths(): List<String> =
+        metaBox.query()
+            .equal(ImageMetaEntity_.isHidden, true)
+            .build().use { it.find() }
+            .map { it.path }
 
     // --- Favorites ---
 
-    fun isFavorite(path: String): Boolean {
-        val db = helper!!.readableDatabase
-        db.rawQuery("SELECT 1 FROM $FAVORITES_TABLE WHERE path = ?", arrayOf(path)).use {
-            return it.moveToFirst()
-        }
+    fun isFavorite(path: String): Boolean =
+        metaBox.query()
+            .equal(ImageMetaEntity_.path, path, StringOrder.CASE_SENSITIVE)
+            .equal(ImageMetaEntity_.isFavorite, true)
+            .build().use { it.count() > 0 }
+
+    fun setFavorite(path: String, favorite: Boolean) =
+        upsertMeta(path) { isFavorite = favorite }
+
+    fun getFavoritePaths(): List<String> =
+        metaBox.query()
+            .equal(ImageMetaEntity_.isFavorite, true)
+            .build().use { it.find() }
+            .map { it.path }
+
+    // --- Helpers ---
+
+    private val metaLock = Any()
+
+    private fun upsertMeta(path: String, update: ImageMetaEntity.() -> Unit) = synchronized(metaLock) {
+        val e = metaBox.query()
+            .equal(ImageMetaEntity_.path, path, StringOrder.CASE_SENSITIVE)
+            .build().use { it.findFirst() }
+            ?: ImageMetaEntity(path = path)
+        e.update()
+        metaBox.put(e)
     }
 
-    fun setFavorite(path: String, favorite: Boolean) {
-        val db = helper!!.writableDatabase
-        if (favorite) {
-            val cv = ContentValues().apply { put("path", path) }
-            db.insertWithOnConflict(FAVORITES_TABLE, null, cv, SQLiteDatabase.CONFLICT_IGNORE)
-        } else {
-            db.delete(FAVORITES_TABLE, "path = ?", arrayOf(path))
-        }
-    }
+    private fun ObjectsEntity.hasLabel(label: String): Boolean =
+        labels.split(",").any { it.trim().equals(label, ignoreCase = true) }
 
-    fun getFavoritePaths(): List<String> {
-        val db = helper!!.readableDatabase
-        val paths = mutableListOf<String>()
-        db.rawQuery("SELECT path FROM $FAVORITES_TABLE", null).use { cursor ->
-            while (cursor.moveToNext()) paths.add(cursor.getString(0))
-        }
-        return paths
-    }
-
-    // --- Embedding similarity ---
-
-    fun findSimilar(query: FloatArray, topK: Int, allowedPaths: Set<String>? = null): List<String> {
-        val db = helper!!.readableDatabase
-        val scored = mutableListOf<Pair<Float, String>>()
-        db.rawQuery("SELECT path, embedding FROM $TABLE", null).use { cursor ->
-            while (cursor.moveToNext()) {
-                val path = cursor.getString(0)
-                if (allowedPaths != null && path !in allowedPaths) continue
-                val emb  = cursor.getBlob(1).toFloatArray()
-                scored.add(dotProduct(query, emb) to path)
-            }
-        }
-        return scored.sortedByDescending { it.first }.take(topK).map { it.second }
-    }
-
-    private fun dotProduct(a: FloatArray, b: FloatArray): Float {
-        var sum = 0f
-        for (i in 0 until minOf(a.size, b.size)) sum += a[i] * b[i]
-        return sum
-    }
-
-    fun allEmbeddings(): List<Pair<String, FloatArray>> {
-        val db = helper!!.readableDatabase
-        val result = mutableListOf<Pair<String, FloatArray>>()
-        db.rawQuery("SELECT hash, embedding FROM $TABLE", null).use { cursor ->
-            while (cursor.moveToNext()) {
-                val hash = cursor.getString(0)
-                val embedding = cursor.getBlob(1).toFloatArray()
-                result.add(hash to embedding)
-            }
-        }
-        return result
-    }
-
-    private fun FloatArray.toByteArray(): ByteArray {
-        val buf = ByteBuffer.allocate(size * 4).order(ByteOrder.LITTLE_ENDIAN)
-        for (f in this) buf.putFloat(f)
-        return buf.array()
-    }
-
-    private fun ByteArray.toFloatArray(): FloatArray {
-        val buf = ByteBuffer.wrap(this).order(ByteOrder.LITTLE_ENDIAN)
-        return FloatArray(size / 4) { buf.float }
-    }
-
-    private class DbHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
-        override fun onCreate(db: SQLiteDatabase) {
-            db.execSQL("CREATE TABLE $TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, embedding BLOB NOT NULL)")
-            db.execSQL("CREATE TABLE $OCR_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, ocr_text TEXT)")
-            db.execSQL("CREATE TABLE $OBJECTS_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, labels TEXT)")
-            db.execSQL("CREATE TABLE $FACES_TABLE (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, face_index INTEGER NOT NULL, embedding BLOB NOT NULL, bbox_left REAL, bbox_top REAL, bbox_right REAL, bbox_bottom REAL, yaw REAL, pitch REAL, roll REAL, face_size REAL, blur_score REAL, has_landmarks INTEGER, detection_score REAL)")
-            db.execSQL("CREATE UNIQUE INDEX idx_faces_path_face ON $FACES_TABLE (path, face_index)")
-            db.execSQL("CREATE INDEX idx_embeddings_path ON $TABLE (path)")
-            db.execSQL("CREATE INDEX idx_ocr_path ON $OCR_TABLE (path)")
-            db.execSQL("CREATE INDEX idx_objects_path ON $OBJECTS_TABLE (path)")
-            db.execSQL("CREATE TABLE $FAVORITES_TABLE (path TEXT PRIMARY KEY)")
-            db.execSQL("CREATE TABLE $GPS_TABLE (path TEXT PRIMARY KEY, lat REAL, lon REAL)")
-            db.execSQL("CREATE TABLE $HIDDEN_TABLE (path TEXT PRIMARY KEY)")
-            db.execSQL("CREATE TABLE $CLUSTERS_TABLE (cluster_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, representative_face_id INTEGER NOT NULL)")
-            db.execSQL("CREATE TABLE $CLUSTER_MEMBERS_TABLE (face_id INTEGER PRIMARY KEY, cluster_id INTEGER NOT NULL)")
-            db.execSQL("CREATE INDEX idx_cluster_members_cluster ON $CLUSTER_MEMBERS_TABLE (cluster_id)")
-        }
-
-        override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            if (oldVersion < 2) {
-                db.execSQL("CREATE TABLE IF NOT EXISTS $OCR_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, ocr_text TEXT)")
-            }
-            if (oldVersion < 3) {
-                db.execSQL("CREATE TABLE IF NOT EXISTS $OBJECTS_TABLE (hash TEXT PRIMARY KEY, path TEXT NOT NULL, labels TEXT)")
-            }
-            if (oldVersion < 4) {
-                db.execSQL("CREATE TABLE IF NOT EXISTS $FACES_TABLE (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL, face_index INTEGER NOT NULL, embedding BLOB NOT NULL)")
-                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_faces_path_face ON $FACES_TABLE (path, face_index)")
-            }
-            if (oldVersion < 5) {
-                db.execSQL("CREATE INDEX IF NOT EXISTS idx_embeddings_path ON $TABLE (path)")
-                db.execSQL("CREATE INDEX IF NOT EXISTS idx_ocr_path ON $OCR_TABLE (path)")
-                db.execSQL("CREATE INDEX IF NOT EXISTS idx_objects_path ON $OBJECTS_TABLE (path)")
-            }
-            if (oldVersion < 6) {
-                db.execSQL("CREATE TABLE IF NOT EXISTS $FAVORITES_TABLE (path TEXT PRIMARY KEY)")
-            }
-            if (oldVersion < 7) {
-                db.execSQL("CREATE TABLE IF NOT EXISTS $GPS_TABLE (path TEXT PRIMARY KEY, lat REAL, lon REAL)")
-            }
-            if (oldVersion < 8) {
-                db.execSQL("CREATE TABLE IF NOT EXISTS $HIDDEN_TABLE (path TEXT PRIMARY KEY)")
-            }
-            if (oldVersion < 9) {
-                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN bbox_left REAL")
-                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN bbox_top REAL")
-                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN bbox_right REAL")
-                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN bbox_bottom REAL")
-            }
-            if (oldVersion < 10) {
-                db.execSQL("CREATE TABLE IF NOT EXISTS $CLUSTERS_TABLE (cluster_id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, representative_face_id INTEGER NOT NULL)")
-                db.execSQL("CREATE TABLE IF NOT EXISTS $CLUSTER_MEMBERS_TABLE (face_id INTEGER PRIMARY KEY, cluster_id INTEGER NOT NULL)")
-                db.execSQL("CREATE INDEX IF NOT EXISTS idx_cluster_members_cluster ON $CLUSTER_MEMBERS_TABLE (cluster_id)")
-            }
-            if (oldVersion < 11) {
-                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN yaw REAL")
-                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN pitch REAL")
-                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN roll REAL")
-                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN face_size REAL")
-                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN blur_score REAL")
-                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN has_landmarks INTEGER")
-            }
-            if (oldVersion < 12) {
-                db.execSQL("ALTER TABLE $FACES_TABLE ADD COLUMN detection_score REAL")
-            }
-        }
-    }
+    private fun FaceEntity.toFaceEntry(): FaceEntry = FaceEntry(
+        id             = id,
+        path           = path,
+        faceIndex      = faceIndex,
+        embedding      = embedding ?: FloatArray(0),
+        bbox           = if (bboxLeft == 0f && bboxTop == 0f && bboxRight == 0f && bboxBottom == 0f) null
+                         else RectF(bboxLeft, bboxTop, bboxRight, bboxBottom),
+        yaw            = yaw,
+        pitch          = pitch,
+        roll           = roll,
+        faceSize       = faceSize,
+        blurScore      = blurScore,
+        hasLandmarks   = hasLandmarks,
+        detectionScore = detectionScore,
+    )
 }

@@ -138,8 +138,10 @@ class SettingsActivity : AppCompatActivity() {
                     if (clipSwitch.isChecked) {
                         embeddingSection.visibility = View.VISIBLE
                         EmbeddingManager.loadProgress(this)
-                        EmbeddingManager.start(this)
-                        IndexingForegroundService.start(this)
+                        if (!EmbeddingManager.isPaused) {
+                            EmbeddingManager.start(this)
+                            IndexingForegroundService.start(this)
+                        }
                     }
                 }
                 is ModelManager.State.Failed -> {
@@ -188,8 +190,14 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         pauseResumeButton.setOnClickListener {
-            if (EmbeddingManager.isRunning.value == true) EmbeddingManager.pause()
-            else { EmbeddingManager.start(this); IndexingForegroundService.start(this) }
+            if (EmbeddingManager.isRunning.value == true) {
+                pauseResumeButton.text = "Resume"
+                EmbeddingManager.pause()
+            } else {
+                pauseResumeButton.text = "Pause"
+                EmbeddingManager.start(this)
+                IndexingForegroundService.start(this)
+            }
         }
 
         // --- CLIP switch ---
@@ -238,8 +246,14 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         pauseResumeOcrButton.setOnClickListener {
-            if (OcrManager.isRunning.value == true) OcrManager.pause()
-            else { OcrManager.start(this); IndexingForegroundService.start(this) }
+            if (OcrManager.isRunning.value == true) {
+                pauseResumeOcrButton.text = "Resume"
+                OcrManager.pause()
+            } else {
+                pauseResumeOcrButton.text = "Pause"
+                OcrManager.start(this)
+                IndexingForegroundService.start(this)
+            }
         }
 
         ocrSwitch.isChecked = prefs.getBoolean("ocr_enabled", false)
@@ -306,8 +320,10 @@ class SettingsActivity : AppCompatActivity() {
                     if (objectDetectionSwitch.isChecked) {
                         objectProcessingSection.visibility = View.VISIBLE
                         ObjectDetectionManager.loadProgress(this)
-                        ObjectDetectionManager.start(this)
-                        IndexingForegroundService.start(this)
+                        if (!ObjectDetectionManager.isPaused) {
+                            ObjectDetectionManager.start(this)
+                            IndexingForegroundService.start(this)
+                        }
                     }
                 }
                 is YoloModelManager.State.Failed -> {
@@ -356,8 +372,14 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         pauseResumeObjectButton.setOnClickListener {
-            if (ObjectDetectionManager.isRunning.value == true) ObjectDetectionManager.pause()
-            else { ObjectDetectionManager.start(this); IndexingForegroundService.start(this) }
+            if (ObjectDetectionManager.isRunning.value == true) {
+                pauseResumeObjectButton.text = "Resume"
+                ObjectDetectionManager.pause()
+            } else {
+                pauseResumeObjectButton.text = "Pause"
+                ObjectDetectionManager.start(this)
+                IndexingForegroundService.start(this)
+            }
         }
 
         // --- Object Detection switch ---
@@ -421,8 +443,10 @@ class SettingsActivity : AppCompatActivity() {
                     if (faceDetectionSwitch.isChecked) {
                         faceProcessingSection.visibility = View.VISIBLE
                         FaceIndexManager.loadProgress(this)
-                        FaceIndexManager.start(this)
-                        IndexingForegroundService.start(this)
+                        if (!FaceIndexManager.isPaused) {
+                            FaceIndexManager.start(this)
+                            IndexingForegroundService.start(this)
+                        }
                     }
                 }
                 is FaceModelManager.State.Failed -> {
@@ -466,8 +490,14 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         pauseResumeFaceButton.setOnClickListener {
-            if (FaceIndexManager.isRunning.value == true) FaceIndexManager.stop()
-            else { FaceIndexManager.start(this); IndexingForegroundService.start(this) }
+            if (FaceIndexManager.isRunning.value == true) {
+                pauseResumeFaceButton.text = "Resume"
+                FaceIndexManager.stop()
+            } else {
+                pauseResumeFaceButton.text = "Pause"
+                FaceIndexManager.start(this)
+                IndexingForegroundService.start(this)
+            }
         }
 
         reindexFaceButton.setOnClickListener {

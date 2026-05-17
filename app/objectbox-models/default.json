@@ -1,0 +1,343 @@
+{
+  "_note1": "KEEP THIS FILE! Check it into a version control system (VCS) like git.",
+  "_note2": "ObjectBox manages crucial IDs for your object model. See docs for details.",
+  "_note3": "If you have VCS merge conflicts, you must resolve them according to ObjectBox docs.",
+  "entities": [
+    {
+      "id": "1:5298876704570398032",
+      "lastPropertyId": "7:3181351964052140564",
+      "name": "FaceClusterEntity",
+      "properties": [
+        {
+          "id": "1:1672410476020363476",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:4927377907059616460",
+          "name": "name",
+          "type": 9
+        },
+        {
+          "id": "3:4743457184595472051",
+          "name": "representativePath",
+          "type": 9
+        },
+        {
+          "id": "4:3552922547422450032",
+          "name": "representativeBboxLeft",
+          "type": 7
+        },
+        {
+          "id": "5:6365445450173755866",
+          "name": "representativeBboxTop",
+          "type": 7
+        },
+        {
+          "id": "6:3473643324184038551",
+          "name": "representativeBboxRight",
+          "type": 7
+        },
+        {
+          "id": "7:3181351964052140564",
+          "name": "representativeBboxBottom",
+          "type": 7
+        }
+      ],
+      "relations": []
+    },
+    {
+      "id": "2:8639448531284202447",
+      "lastPropertyId": "16:729135636829244210",
+      "name": "FaceEntity",
+      "properties": [
+        {
+          "id": "1:3649915438314608829",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:18831916893021479",
+          "name": "path",
+          "indexId": "1:3776418309116806302",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "3:1534543060367931611",
+          "name": "faceIndex",
+          "type": 5
+        },
+        {
+          "id": "4:6960420737051886461",
+          "name": "embedding",
+          "indexId": "2:5318220156849420796",
+          "type": 28,
+          "flags": 8
+        },
+        {
+          "id": "5:1507070220918655733",
+          "name": "bboxLeft",
+          "type": 7
+        },
+        {
+          "id": "6:3846147429947655252",
+          "name": "bboxTop",
+          "type": 7
+        },
+        {
+          "id": "7:400550309255646071",
+          "name": "bboxRight",
+          "type": 7
+        },
+        {
+          "id": "8:1104246010559490038",
+          "name": "bboxBottom",
+          "type": 7
+        },
+        {
+          "id": "9:6032864903548623583",
+          "name": "yaw",
+          "type": 7
+        },
+        {
+          "id": "10:3802676825058442545",
+          "name": "pitch",
+          "type": 7
+        },
+        {
+          "id": "11:3217932714272489266",
+          "name": "roll",
+          "type": 7
+        },
+        {
+          "id": "12:6347541372743493804",
+          "name": "faceSize",
+          "type": 7
+        },
+        {
+          "id": "13:8528999733869024969",
+          "name": "blurScore",
+          "type": 7
+        },
+        {
+          "id": "14:4028485932412159916",
+          "name": "hasLandmarks",
+          "type": 1
+        },
+        {
+          "id": "15:5153889502603132273",
+          "name": "detectionScore",
+          "type": 7
+        },
+        {
+          "id": "16:729135636829244210",
+          "name": "clusterId",
+          "indexId": "3:4017805743911895941",
+          "type": 6,
+          "flags": 8
+        }
+      ],
+      "relations": []
+    },
+    {
+      "id": "4:6738291681723508803",
+      "lastPropertyId": "4:8434342411689481319",
+      "name": "ClipEntity",
+      "properties": [
+        {
+          "id": "1:1007983884633791949",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "3:8999980256513975632",
+          "name": "path",
+          "indexId": "8:9181008531471324854",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "4:8434342411689481319",
+          "name": "embedding",
+          "indexId": "9:3019383941123573479",
+          "type": 28,
+          "flags": 8
+        }
+      ],
+      "relations": []
+    },
+    {
+      "id": "5:3389561688030704221",
+      "lastPropertyId": "5:7839288723095542712",
+      "name": "GpsEntity",
+      "properties": [
+        {
+          "id": "1:2710426272738928430",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:4291348933616279578",
+          "name": "path",
+          "indexId": "10:7477810960618913531",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "3:1132430274792995499",
+          "name": "lat",
+          "type": 8
+        },
+        {
+          "id": "4:1979215727267958045",
+          "name": "lon",
+          "type": 8
+        },
+        {
+          "id": "5:7839288723095542712",
+          "name": "hasGps",
+          "type": 1
+        }
+      ],
+      "relations": []
+    },
+    {
+      "id": "6:3793119333416189496",
+      "lastPropertyId": "4:8635069209297693468",
+      "name": "ImageMetaEntity",
+      "properties": [
+        {
+          "id": "1:6798438109728728526",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:6002397913553898118",
+          "name": "path",
+          "indexId": "11:8186796657782577983",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "3:3382751136550542167",
+          "name": "isFavorite",
+          "type": 1
+        },
+        {
+          "id": "4:8635069209297693468",
+          "name": "isHidden",
+          "type": 1
+        }
+      ],
+      "relations": []
+    },
+    {
+      "id": "7:360739733205568847",
+      "lastPropertyId": "4:8479742269516710451",
+      "name": "ObjectsEntity",
+      "properties": [
+        {
+          "id": "1:7820860425294975569",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:6541114990984071660",
+          "name": "hash",
+          "indexId": "12:1087989677566262709",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "3:7286681345858533719",
+          "name": "path",
+          "indexId": "13:9011723392825520572",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "4:8479742269516710451",
+          "name": "labels",
+          "type": 9
+        }
+      ],
+      "relations": []
+    },
+    {
+      "id": "8:1504057515974688227",
+      "lastPropertyId": "4:4298325624687074497",
+      "name": "OcrEntity",
+      "properties": [
+        {
+          "id": "1:3755423607596890135",
+          "name": "id",
+          "type": 6,
+          "flags": 1
+        },
+        {
+          "id": "2:2658724901170282555",
+          "name": "hash",
+          "indexId": "14:7074410975027705346",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "3:4651957416952550173",
+          "name": "path",
+          "indexId": "15:7505586821151077492",
+          "type": 9,
+          "flags": 2048
+        },
+        {
+          "id": "4:4298325624687074497",
+          "name": "text",
+          "type": 9
+        }
+      ],
+      "relations": []
+    }
+  ],
+  "lastEntityId": "8:1504057515974688227",
+  "lastIndexId": "15:7505586821151077492",
+  "lastRelationId": "0:0",
+  "lastSequenceId": "0:0",
+  "modelVersion": 5,
+  "modelVersionParserMinimum": 5,
+  "retiredEntityUids": [
+    3824875901581134325
+  ],
+  "retiredIndexUids": [
+    1210035986679434473,
+    2673576024552895018,
+    8518220221852374677,
+    2089015591741374828
+  ],
+  "retiredPropertyUids": [
+    1426249239376450307,
+    3786884157959302163,
+    8412815618486880686,
+    8764031909265852938,
+    7443301842989913247,
+    4031548764699152431,
+    4604549715111659175,
+    1970556944887489881,
+    3496139468105458661,
+    3679927662667064955,
+    7968726318211343766,
+    7675657155243093241,
+    3811692451597394596,
+    6027661033881081542,
+    6920612439152911589,
+    3787209626109999461,
+    9123353035782629723
+  ],
+  "retiredRelationUids": [],
+  "version": 1
+}

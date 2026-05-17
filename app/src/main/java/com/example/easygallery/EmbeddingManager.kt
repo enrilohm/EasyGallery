@@ -12,13 +12,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.io.File
-import java.security.MessageDigest
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -27,7 +25,6 @@ object EmbeddingManager {
     private const val TAG = "EmbeddingManager"
     private const val PREFS_NAME = "embeddings"
     private const val KEY_SKIP = "skip_paths"
-    private const val BATCH_SIZE = 8
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
@@ -44,11 +41,15 @@ object EmbeddingManager {
     private val _isRunning = MutableLiveData(false)
     val isRunning: LiveData<Boolean> = _isRunning
 
+    @Volatile var isPaused = false
+        private set
+
     fun start(context: Context) {
         if (job?.isActive == true) return
+        isPaused = false
         val appContext = context.applicationContext
+        _isRunning.postValue(true)
         job = scope.launch {
-            _isRunning.postValue(true)
             try {
                 runEmbedding(appContext)
             } catch (t: Throwable) {
@@ -67,75 +68,45 @@ object EmbeddingManager {
         val skipPaths = Collections.synchronizedSet(prefs.getStringSet(KEY_SKIP, emptySet())!!.toMutableSet())
 
         val paths = queryImagePaths(appContext)
+        val pending = paths.filter { it !in skipPaths && !VectorStore.hasEmbeddingPath(it) }
         _total.postValue(paths.size)
         _failed.postValue(skipPaths.size)
-        _processed.postValue(VectorStore.count() + skipPaths.size)
+        val alreadyDone = paths.size - pending.size
+        _processed.postValue(alreadyDone)
 
-        val done = AtomicInteger(0)
+        val count = AtomicInteger(alreadyDone)
         val parallelism = minOf(4, Runtime.getRuntime().availableProcessors())
         val semaphore = Semaphore(parallelism)
-        val toInfer = Collections.synchronizedList(mutableListOf<Pair<String, String>>())
 
-        // Phase 1: parallel I/O — filter which paths need inference
         coroutineScope {
-            paths.map { path ->
+            pending.map { path ->
                 async {
                     if (!isActive) return@async
                     semaphore.withPermit {
-                        if (path in skipPaths) {
-                            _processed.postValue(done.incrementAndGet()); return@withPermit
-                        }
                         val file = File(path)
                         if (!file.exists()) {
                             addToSkip(path, skipPaths, prefs)
-                            _processed.postValue(done.incrementAndGet()); _failed.postValue(skipPaths.size); return@withPermit
+                            _failed.postValue(skipPaths.size)
+                            _processed.postValue(count.incrementAndGet()); return@withPermit
                         }
-                        if (VectorStore.hasEmbeddingPath(path)) {
-                            _processed.postValue(done.incrementAndGet()); return@withPermit
-                        }
-                        val hash = md5(file)
-                        if (hash == null) {
+                        val bitmap = ClipEncoder.decodeBitmap(path)
+                        if (bitmap == null) {
                             addToSkip(path, skipPaths, prefs)
-                            _processed.postValue(done.incrementAndGet()); _failed.postValue(skipPaths.size); return@withPermit
+                            _failed.postValue(skipPaths.size)
+                            _processed.postValue(count.incrementAndGet()); return@withPermit
                         }
-                        if (VectorStore.hasHash(hash)) {
-                            VectorStore.updatePath(hash, path)
-                            _processed.postValue(done.incrementAndGet()); return@withPermit
+                        val emb = ClipEncoder.encodeBatch(listOf(bitmap))[0]
+                        bitmap.recycle()
+                        if (emb != null) {
+                            VectorStore.insert(path, emb)
+                        } else {
+                            addToSkip(path, skipPaths, prefs)
+                            _failed.postValue(skipPaths.size)
                         }
-                        toInfer.add(path to hash)
+                        _processed.postValue(count.incrementAndGet())
                     }
                 }
             }.awaitAll()
-        }
-
-        // Phase 2: batch inference
-        for (batch in toInfer.chunked(BATCH_SIZE)) {
-            if (!currentCoroutineContext().isActive) break
-            val bitmaps = batch.map { (path, _) -> ClipEncoder.decodeBitmap(path) }
-            val validIdx = bitmaps.indices.filter { bitmaps[it] != null }
-
-            if (validIdx.isNotEmpty()) {
-                val embeddings = ClipEncoder.encodeBatch(validIdx.map { bitmaps[it]!! })
-                validIdx.forEachIndexed { ei, bi ->
-                    val (path, hash) = batch[bi]
-                    val emb = embeddings[ei]
-                    if (emb != null) {
-                        VectorStore.insert(hash, path, emb)
-                    } else {
-                        addToSkip(path, skipPaths, prefs)
-                        _failed.postValue(skipPaths.size)
-                    }
-                    bitmaps[bi]!!.recycle()
-                }
-            }
-
-            val failedIdx = bitmaps.indices.filter { bitmaps[it] == null }
-            if (failedIdx.isNotEmpty()) {
-                failedIdx.forEach { bi -> addToSkip(batch[bi].first, skipPaths, prefs) }
-                _failed.postValue(skipPaths.size)
-            }
-
-            _processed.postValue(done.addAndGet(batch.size))
         }
     }
 
@@ -146,6 +117,7 @@ object EmbeddingManager {
     }
 
     fun pause() {
+        isPaused = true
         job?.cancel()
         job = null
         _isRunning.postValue(false)
@@ -161,23 +133,6 @@ object EmbeddingManager {
             _total.postValue(paths.size)
             _failed.postValue(skipPaths.size)
             _processed.postValue(VectorStore.count() + skipPaths.size)
-        }
-    }
-
-    private fun md5(file: File): String? {
-        return try {
-            val digest = MessageDigest.getInstance("MD5")
-            file.inputStream().use { stream ->
-                val buf = ByteArray(8192)
-                var read: Int
-                while (stream.read(buf).also { read = it } != -1) {
-                    digest.update(buf, 0, read)
-                }
-            }
-            digest.digest().joinToString("") { "%02x".format(it) }
-        } catch (e: Exception) {
-            android.util.Log.e(TAG, "MD5 error for ${file.path}: ${e.message}")
-            null
         }
     }
 

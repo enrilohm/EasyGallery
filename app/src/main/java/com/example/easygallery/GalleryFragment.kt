@@ -9,9 +9,14 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class GalleryFragment : Fragment() {
 
@@ -23,6 +28,7 @@ class GalleryFragment : Fragment() {
 
     private var currentPath = ""
     private val pathStack = ArrayDeque<String>()
+    private var updateJob: Job? = null
 
     private val backCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
@@ -88,12 +94,17 @@ class GalleryFragment : Fragment() {
     private fun updateView() {
         updateToolbarTitle()
         val entries = viewModel.filteredEntries.value ?: return
-        val subfolders = childFolders(currentPath, entries)
-        val images = entries
-            .filter { it.dir == currentPath }
-            .map { GalleryItem.Image(it.uri, it.path) }
-        adapter.updateItems(subfolders + images)
-        recyclerView.scrollToPosition(0)
+        val path = currentPath
+        updateJob?.cancel()
+        updateJob = viewLifecycleOwner.lifecycleScope.launch {
+            val items = withContext(Dispatchers.Default) {
+                val subfolders = childFolders(path, entries)
+                val images = entries.filter { it.dir == path }.map { GalleryItem.Image(it.uri, it.path) }
+                subfolders + images
+            }
+            adapter.updateItems(items)
+            recyclerView.scrollToPosition(0)
+        }
     }
 
     private fun updateToolbarTitle() {

@@ -51,12 +51,16 @@ object OcrManager {
     private val _isRunning = MutableLiveData(false)
     val isRunning: LiveData<Boolean> = _isRunning
 
+    @Volatile var isPaused = false
+        private set
+
     fun start(context: Context) {
         if (job?.isActive == true) return
+        isPaused = false
         val appContext = context.applicationContext
 
+        _isRunning.postValue(true)
         job = scope.launch {
-            _isRunning.postValue(true)
             try {
                 runOcr(appContext)
             } catch (t: Throwable) {
@@ -74,48 +78,47 @@ object OcrManager {
         val skipPaths = Collections.synchronizedSet(prefs.getStringSet(KEY_SKIP, emptySet())!!.toMutableSet())
 
         val paths = queryImagePaths(appContext)
+        val pending = paths.filter { it !in skipPaths && !VectorStore.hasOcrPath(it) }
         _total.postValue(paths.size)
         _failed.postValue(skipPaths.size)
-        _processed.postValue(VectorStore.ocrCount() + skipPaths.size)
+        val alreadyDone = paths.size - pending.size
+        _processed.postValue(alreadyDone)
 
-        val done = AtomicInteger(0)
+        val count = AtomicInteger(alreadyDone)
         val parallelism = minOf(4, Runtime.getRuntime().availableProcessors())
         val semaphore = Semaphore(parallelism)
 
         coroutineScope {
-            paths.map { path ->
+            pending.map { path ->
                 async {
                     if (!isActive) return@async
                     semaphore.withPermit {
-                        if (path in skipPaths) {
-                            _processed.postValue(done.incrementAndGet()); return@withPermit
-                        }
                         val file = File(path)
                         if (!file.exists()) {
                             addToSkip(path, skipPaths, prefs)
-                            _processed.postValue(done.incrementAndGet()); _failed.postValue(skipPaths.size); return@withPermit
-                        }
-                        if (VectorStore.hasOcrPath(path)) {
-                            _processed.postValue(done.incrementAndGet()); return@withPermit
+                            _failed.postValue(skipPaths.size)
+                            _processed.postValue(count.incrementAndGet()); return@withPermit
                         }
                         val hash = md5(file)
                         if (hash == null) {
                             addToSkip(path, skipPaths, prefs)
-                            _processed.postValue(done.incrementAndGet()); _failed.postValue(skipPaths.size); return@withPermit
+                            _failed.postValue(skipPaths.size)
+                            _processed.postValue(count.incrementAndGet()); return@withPermit
                         }
                         if (VectorStore.hasOcr(hash)) {
                             VectorStore.updateOcrPath(hash, path)
-                            _processed.postValue(done.incrementAndGet()); return@withPermit
+                            _processed.postValue(count.incrementAndGet()); return@withPermit
                         }
                         val text = try {
                             recognizeText(path)
                         } catch (t: Throwable) {
                             android.util.Log.w(TAG, "OCR failed: $path — ${t.message}")
                             addToSkip(path, skipPaths, prefs)
-                            _processed.postValue(done.incrementAndGet()); _failed.postValue(skipPaths.size); return@withPermit
+                            _failed.postValue(skipPaths.size)
+                            _processed.postValue(count.incrementAndGet()); return@withPermit
                         }
                         VectorStore.insertOcr(hash, path, text)
-                        _processed.postValue(done.incrementAndGet())
+                        _processed.postValue(count.incrementAndGet())
                     }
                 }
             }.awaitAll()
@@ -149,6 +152,7 @@ object OcrManager {
     }
 
     fun pause() {
+        isPaused = true
         job?.cancel()
         job = null
         _isRunning.postValue(false)

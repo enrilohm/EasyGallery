@@ -32,6 +32,11 @@ class PeopleFragment : Fragment() {
     private lateinit var emptyText: TextView
     private lateinit var swipeRefresh: SwipeRefreshLayout
 
+    private var rawClusters: List<VectorStore.StoredCluster> = emptyList()
+    private var faceCount = 0
+    private var memberBBoxes: Map<Pair<String, Long>, android.graphics.RectF?> = emptyMap()
+    private var renderJob: kotlinx.coroutines.Job? = null
+
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
         inflater.inflate(R.layout.fragment_people, container, false)
 
@@ -41,12 +46,17 @@ class PeopleFragment : Fragment() {
 
         recyclerView = view.findViewById(R.id.peopleRecyclerView)
         emptyText = view.findViewById(R.id.emptyText)
+        recyclerView.layoutManager = GridLayoutManager(requireContext(), 3)
 
         val pad = (4 * resources.displayMetrics.density).toInt()
         ViewCompat.setOnApplyWindowInsetsListener(recyclerView) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             v.setPadding(pad, pad, pad, bars.bottom + pad)
             insets
+        }
+
+        viewModel.filteredEntries.observe(viewLifecycleOwner) { entries ->
+            if (rawClusters.isNotEmpty()) renderClusters(entries)
         }
 
         loadClusters(recluster = false)
@@ -63,7 +73,7 @@ class PeopleFragment : Fragment() {
     private fun loadClusters(recluster: Boolean) {
         swipeRefresh.isRefreshing = true
         viewLifecycleOwner.lifecycleScope.launch {
-            val (clusters, faceCount) = withContext(Dispatchers.IO) {
+            val (clusters, count, bboxes) = withContext(Dispatchers.IO) {
                 VectorStore.init(requireContext().applicationContext)
                 if (recluster || !VectorStore.hasClusters()) {
                     val prefs = requireContext()
@@ -74,16 +84,38 @@ class PeopleFragment : Fragment() {
                     val result = FaceClusterer.cluster(faces, threshold)
                     VectorStore.storeClusters(result)
                 }
-                VectorStore.getStoredClusters() to VectorStore.countFaceEntries()
+                Triple(VectorStore.getStoredClusters(), VectorStore.countFaceEntries(), VectorStore.getClusterMemberBBoxes())
             }
+            rawClusters = clusters
+            faceCount = count
+            memberBBoxes = bboxes
+            renderClusters(viewModel.filteredEntries.value ?: emptyList())
+            swipeRefresh.isRefreshing = false
+        }
+    }
 
-            val filtered = clusters
-                .map { c -> c.copy(paths = viewModel.applyFilters(c.paths)) }
-                .filter { it.paths.size >= 2 }
-
+    private fun renderClusters(entries: List<GalleryViewModel.ImageEntry>) {
+        val snapshot = rawClusters
+        val bboxSnapshot = memberBBoxes
+        val countSnapshot = faceCount
+        renderJob?.cancel()
+        renderJob = viewLifecycleOwner.lifecycleScope.launch {
+            val filtered = withContext(Dispatchers.Default) {
+                val allowedPaths = entries.map { it.path }.toSet()
+                snapshot.mapNotNull { c ->
+                    val filteredPaths = c.paths.filter { it in allowedPaths }
+                    if (filteredPaths.size < 2) return@mapNotNull null
+                    if (c.representativePath in allowedPaths) {
+                        c.copy(paths = filteredPaths)
+                    } else {
+                        val newRep = filteredPaths.first()
+                        c.copy(paths = filteredPaths, representativePath = newRep, representativeBBox = bboxSnapshot[newRep to c.clusterId])
+                    }
+                }
+            }
             if (filtered.isEmpty()) {
                 emptyText.text = when {
-                    faceCount == 0 -> "No faces indexed yet.\nEnable face detection in Settings."
+                    countSnapshot == 0 -> "No faces indexed yet.\nEnable face detection in Settings."
                     else -> "No recurring faces found."
                 }
                 emptyText.visibility = View.VISIBLE
@@ -91,10 +123,8 @@ class PeopleFragment : Fragment() {
             } else {
                 emptyText.visibility = View.GONE
                 recyclerView.visibility = View.VISIBLE
-                recyclerView.layoutManager = GridLayoutManager(requireContext(), 3)
                 recyclerView.adapter = ClustersAdapter(filtered)
             }
-            swipeRefresh.isRefreshing = false
         }
     }
 

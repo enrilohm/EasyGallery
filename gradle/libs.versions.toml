@@ -1,5 +1,6 @@
 [versions]
 agp = "9.2.1"
+objectbox = "5.4.2"
 coreKtx = "1.10.1"
 junit = "4.13.2"
 junitVersion = "1.1.5"
@@ -47,4 +48,6 @@ androidx-swiperefreshlayout = { group = "androidx.swiperefreshlayout", name = "s
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-kapt = { id = "com.android.legacy-kapt", version.ref = "agp" }
+objectbox = { id = "io.objectbox", version.ref = "objectbox" }
 

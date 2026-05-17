@@ -32,62 +32,71 @@ object FaceIndexManager {
     val total:      LiveData<Int>     = _total
     val isRunning:  LiveData<Boolean> = _isRunning
 
+    @Volatile var isPaused = false
+        private set
+
     fun start(context: Context) {
         if (job?.isActive == true) return
+        isPaused = false
         val appContext = context.applicationContext
 
+        _isRunning.postValue(true)
         job = scope.launch {
-            _isRunning.postValue(true)
-            VectorStore.init(appContext)
-            FaceEncoder.load(appContext)
-            FaceDetector.init(appContext)
+            try {
+                VectorStore.init(appContext)
+                FaceEncoder.load(appContext)
+                FaceDetector.init(appContext)
 
-            val allPaths = queryImagePaths(appContext)
-            val pending = allPaths.filter { !VectorStore.hasFaceEntry(it) }
-            _total.postValue(allPaths.size)
-            _processed.postValue(allPaths.size - pending.size)
+                val allPaths = queryImagePaths(appContext)
+                val pending = allPaths.filter { !VectorStore.hasFaceEntry(it) }
+                _total.postValue(allPaths.size)
+                _processed.postValue(allPaths.size - pending.size)
 
-            val count = AtomicInteger(allPaths.size - pending.size)
-            val parallelism = minOf(4, Runtime.getRuntime().availableProcessors())
-            val semaphore = Semaphore(parallelism)
+                val count = AtomicInteger(allPaths.size - pending.size)
+                val parallelism = minOf(4, Runtime.getRuntime().availableProcessors())
+                val semaphore = Semaphore(parallelism)
 
-            coroutineScope {
-                pending.map { path ->
-                    async {
-                        if (!isActive) return@async
-                        semaphore.withPermit {
-                            try {
-                                val faces = FaceDetector.detect(path)
-                                faces.forEach { face ->
-                                    val embedding = FaceEncoder.encode(face.crop)
-                                    if (embedding != null) {
-                                        VectorStore.insertFace(
-                                            path           = path,
-                                            faceIndex      = face.faceIndex,
-                                            embedding      = embedding,
-                                            bbox           = face.bounds,
-                                            yaw            = face.yaw,
-                                            pitch          = face.pitch,
-                                            roll           = face.roll,
-                                            faceSize       = face.faceRelativeSize,
-                                            blurScore      = face.blurScore,
-                                            hasLandmarks   = face.hasLandmarks,
-                                            detectionScore = face.detectionScore,
-                                        )
+                coroutineScope {
+                    pending.map { path ->
+                        async {
+                            if (!isActive) return@async
+                            semaphore.withPermit {
+                                try {
+                                    val faces = FaceDetector.detect(path)
+                                    faces.forEach { face ->
+                                        val embedding = FaceEncoder.encode(face.crop)
+                                        if (embedding != null) {
+                                            VectorStore.insertFace(
+                                                path           = path,
+                                                faceIndex      = face.faceIndex,
+                                                embedding      = embedding,
+                                                bbox           = face.bounds,
+                                                yaw            = face.yaw,
+                                                pitch          = face.pitch,
+                                                roll           = face.roll,
+                                                faceSize       = face.faceRelativeSize,
+                                                blurScore      = face.blurScore,
+                                                hasLandmarks   = face.hasLandmarks,
+                                                detectionScore = face.detectionScore,
+                                            )
+                                        }
                                     }
+                                    if (faces.isEmpty()) {
+                                        VectorStore.insertFace(path, -1, FloatArray(0))
+                                    }
+                                } catch (e: Exception) {
+                                    android.util.Log.e(TAG, "Failed $path: ${e.message}")
                                 }
-                                if (faces.isEmpty()) {
-                                    VectorStore.insertFace(path, -1, FloatArray(0))
-                                }
-                            } catch (e: Exception) {
-                                android.util.Log.e(TAG, "Failed $path: ${e.message}")
+                                _processed.postValue(count.incrementAndGet())
                             }
-                            _processed.postValue(count.incrementAndGet())
                         }
-                    }
-                }.awaitAll()
+                    }.awaitAll()
+                }
+            } catch (t: Throwable) {
+                android.util.Log.e(TAG, "Unexpected error: ${t::class.simpleName}: ${t.message}")
+            } finally {
+                _isRunning.postValue(false)
             }
-            _isRunning.postValue(false)
         }
     }
 
@@ -105,6 +114,7 @@ object FaceIndexManager {
     }
 
     fun stop() {
+        isPaused = true
         job?.cancel()
         _isRunning.postValue(false)
     }
