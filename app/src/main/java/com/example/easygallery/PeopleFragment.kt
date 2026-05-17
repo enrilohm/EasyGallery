@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.PopupMenu
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
@@ -160,6 +161,37 @@ class PeopleFragment : Fragment() {
                     cluster.name ?: "Person ${position + 1}",
                     cluster.clusterId
                 )
+            }
+            holder.itemView.setOnLongClickListener {
+                val state = viewModel.filterState.value ?: GalleryViewModel.FilterState()
+                val isIncluded = cluster.clusterId in state.personIncludeIds
+                val isExcluded = cluster.clusterId in state.personExcludeIds
+                val popup = PopupMenu(holder.itemView.context, holder.itemView)
+                val label = cluster.name ?: "${cluster.paths.size} photos"
+                if (isIncluded) {
+                    popup.menu.add("Remove include filter").setOnMenuItemClickListener {
+                        viewModel.removePersonFilter(cluster.clusterId, requireContext())
+                        true
+                    }
+                } else {
+                    popup.menu.add("Add include filter").setOnMenuItemClickListener {
+                        viewModel.addPersonInclude(cluster.clusterId, label, requireContext())
+                        true
+                    }
+                }
+                if (isExcluded) {
+                    popup.menu.add("Remove exclude filter").setOnMenuItemClickListener {
+                        viewModel.removePersonFilter(cluster.clusterId, requireContext())
+                        true
+                    }
+                } else {
+                    popup.menu.add("Add exclude filter").setOnMenuItemClickListener {
+                        viewModel.addPersonExclude(cluster.clusterId, label, requireContext())
+                        true
+                    }
+                }
+                popup.show()
+                true
             }
         }
     }

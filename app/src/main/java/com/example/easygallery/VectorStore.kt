@@ -66,23 +66,35 @@ object VectorStore {
 
     // --- CLIP embeddings ---
 
+    @Volatile private var embeddingCache: List<Pair<String, FloatArray>>? = null
+
     fun hasEmbeddingPath(path: String): Boolean =
         clipBox.query()
             .equal(ClipEntity_.path, path, StringOrder.CASE_SENSITIVE)
             .build().use { it.count() > 0 }
 
-    fun insert(path: String, embedding: FloatArray) =
+    fun insert(path: String, embedding: FloatArray) {
         clipBox.put(ClipEntity(path = path, embedding = embedding))
+        embeddingCache = null
+    }
 
     fun count(): Int = clipBox.count().toInt()
 
     fun findSimilar(query: FloatArray, topK: Int, allowedPaths: Set<String>? = null): List<String> {
-        val results = clipBox.query()
-            .nearestNeighbors(ClipEntity_.embedding, query, topK * 3)
-            .build().use { it.findWithScores() }
-            .sortedBy { it.score }
-            .map { it.get().path }
-        return (if (allowedPaths != null) results.filter { it in allowedPaths } else results).take(topK)
+        val cache = embeddingCache ?: clipBox.all
+            .mapNotNull { e -> e.embedding?.let { e.path to it } }
+            .also { embeddingCache = it }
+        return (if (allowedPaths != null) cache.filter { it.first in allowedPaths } else cache)
+            .map { (path, emb) -> path to dot(query, emb) }
+            .sortedByDescending { it.second }
+            .take(topK)
+            .map { it.first }
+    }
+
+    private fun dot(a: FloatArray, b: FloatArray): Float {
+        var sum = 0f
+        for (i in a.indices) sum += a[i] * b[i]
+        return sum
     }
 
     // --- OCR ---
@@ -319,6 +331,14 @@ object VectorStore {
                 )
             }
             .sortedByDescending { it.paths.size }
+
+    fun getPathsForCluster(clusterId: Long): Set<String> =
+        faceBox.query()
+            .equal(FaceEntity_.clusterId, clusterId)
+            .greater(FaceEntity_.faceIndex, -1L)
+            .build().use { it.find() }
+            .map { it.path }
+            .toSet()
 
     // --- GPS ---
 

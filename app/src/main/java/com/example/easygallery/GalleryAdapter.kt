@@ -15,7 +15,8 @@ class GalleryAdapter(
     private val onImageClick: (GalleryItem.Image, Int) -> Unit = { _, _ -> }
 ) : ListAdapter<GalleryItem, RecyclerView.ViewHolder>(DIFF) {
 
-    fun updateItems(newItems: List<GalleryItem>) = submitList(newItems)
+    fun updateItems(newItems: List<GalleryItem>, onCommitted: (() -> Unit)? = null) =
+        submitList(newItems, onCommitted)
 
     override fun getItemViewType(position: Int) = when (getItem(position)) {
         is GalleryItem.Folder -> VIEW_TYPE_FOLDER

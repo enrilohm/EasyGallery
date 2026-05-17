@@ -24,6 +24,7 @@ class SearchFragment : Fragment() {
 
     private val viewModel: GalleryViewModel by activityViewModels()
     private lateinit var adapter: GalleryAdapter
+    private lateinit var recyclerView: RecyclerView
     private lateinit var searchInput: TextInputEditText
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private var searchJob: Job? = null
@@ -50,7 +51,7 @@ class SearchFragment : Fragment() {
             .getSharedPreferences("gallery_prefs", Context.MODE_PRIVATE)
             .getInt("columns", 3)
 
-        val recyclerView = view.findViewById<RecyclerView>(R.id.searchResults)
+        recyclerView = view.findViewById(R.id.searchResults)
         recyclerView.layoutManager = GridLayoutManager(requireContext(), columns)
         recyclerView.adapter = adapter
 
@@ -91,28 +92,29 @@ class SearchFragment : Fragment() {
                 VectorStore.init(ctx)
 
                 // 1. OCR text hits
-                val textHits = VectorStore.findByText(query, limit = 5, allowedPaths = allowed)
+                val textHits = VectorStore.findByText(query, limit = 50, allowedPaths = allowed)
 
                 // 2. Object label hits
-                val labelHits = if (textHits.size < 5)
-                    VectorStore.findByLabel(query, limit = 5, allowedPaths = allowed) else emptyList()
+                val labelHits = VectorStore.findByLabel(query, limit = 50, allowedPaths = allowed)
+                    .filter { it !in textHits }
 
-                // 3. CLIP embedding similarity for remaining slots
-                val soFar = (textHits + labelHits.filter { it !in textHits })
-                val embeddingHits = if (soFar.size < 5) {
-                    ClipTextEncoder.load(ctx)
-                    val embedding = ClipTextEncoder.encode(query)
-                    if (embedding != null) VectorStore.findSimilar(embedding, topK = 5, allowedPaths = allowed) else emptyList()
-                } else emptyList()
+                // 3. CLIP embedding similarity
+                val soFar = textHits + labelHits
+                ClipTextEncoder.load(ctx)
+                val embedding = ClipTextEncoder.encode(query)
+                val embeddingHits = if (embedding != null)
+                    VectorStore.findSimilar(embedding, topK = 200, allowedPaths = allowed)
+                        .filter { it !in textHits && it !in labelHits }
+                else emptyList()
 
-                (soFar + embeddingHits.filter { it !in soFar }).take(5)
+                soFar + embeddingHits
             }
 
             val results = paths.map { path ->
                 val uri = pathToUri[path] ?: Uri.fromFile(File(path))
                 GalleryItem.Image(uri, path)
             }
-            adapter.updateItems(results)
+            adapter.updateItems(results) { recyclerView.scrollToPosition(0) }
             swipeRefresh.isRefreshing = false
         }
     }
