@@ -16,6 +16,7 @@ import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.example.easygallery.gallery.GalleryFragment
 import com.example.easygallery.gallery.GalleryViewModel
 import com.example.easygallery.search.ClipTextEncoder
 
@@ -37,6 +38,19 @@ class MainActivity : AppCompatActivity() {
 
         viewPager = findViewById(R.id.viewPager)
         viewPager.isUserInputEnabled = false
+        viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) {
+                if (currentTabs.getOrNull(position) == TabType.GALLERY) {
+                    supportFragmentManager.fragments
+                        .filterIsInstance<GalleryFragment>()
+                        .firstOrNull()
+                        ?.updateToolbarTitle()
+                } else {
+                    supportActionBar?.title = "Easy Gallery"
+                    supportActionBar?.setDisplayHomeAsUpEnabled(false)
+                }
+            }
+        })
 
         tabLayout = findViewById(R.id.tabLayout)
         tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {

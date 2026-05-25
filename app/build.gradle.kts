@@ -23,6 +23,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            ndk.abiFilters.add("arm64-v8a")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(

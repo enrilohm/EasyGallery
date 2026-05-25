@@ -108,7 +108,7 @@ class GalleryFragment : Fragment() {
         }
     }
 
-    private fun updateToolbarTitle() {
+    fun updateToolbarTitle() {
         val label = if (currentPath == viewModel.rootPath || currentPath.isEmpty())
             "Easy Gallery" else currentPath.substringAfterLast("/")
         (requireActivity() as AppCompatActivity).supportActionBar?.apply {
