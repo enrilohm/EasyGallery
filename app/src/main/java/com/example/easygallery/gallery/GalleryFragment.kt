@@ -1,0 +1,136 @@
+package com.example.easygallery.gallery
+
+import android.os.Bundle
+import android.util.TypedValue
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.activityViewModels
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import com.example.easygallery.R
+
+class GalleryFragment : Fragment() {
+
+    private val viewModel: GalleryViewModel by activityViewModels()
+    private lateinit var adapter: GalleryAdapter
+    private lateinit var layoutManager: GridLayoutManager
+    private lateinit var recyclerView: RecyclerView
+    private lateinit var swipeRefresh: SwipeRefreshLayout
+
+    private var currentPath = ""
+    private val pathStack = ArrayDeque<String>()
+    private var updateJob: Job? = null
+
+    private val backCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            currentPath = pathStack.removeLast()
+            if (pathStack.isEmpty()) isEnabled = false
+            updateView()
+        }
+    }
+
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
+        inflater.inflate(R.layout.fragment_gallery, container, false)
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, backCallback)
+
+        adapter = GalleryAdapter(
+            onFolderClick = { folder ->
+                pathStack.addLast(currentPath)
+                currentPath = folder.path
+                backCallback.isEnabled = true
+                updateView()
+            },
+            onImageClick = { _, index ->
+                ImageDetailActivity.open(requireContext(), adapter.currentPaths(), index)
+            }
+        )
+
+        layoutManager = GridLayoutManager(requireContext(), savedColumns())
+        layoutManager.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
+            override fun getSpanSize(position: Int) =
+                if (adapter.getItemViewType(position) == GalleryAdapter.VIEW_TYPE_FOLDER)
+                    layoutManager.spanCount else 1
+        }
+
+        swipeRefresh = view.findViewById(R.id.swipeRefresh)
+        swipeRefresh.setOnRefreshListener { viewModel.reload(requireContext().contentResolver) }
+
+        recyclerView = view.findViewById(R.id.recyclerView)
+        recyclerView.layoutManager = layoutManager
+        recyclerView.adapter = adapter
+
+        val pad = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 4f, resources.displayMetrics).toInt()
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(recyclerView) { v, insets ->
+            val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            v.setPadding(pad, pad, pad, bars.bottom + pad)
+            insets
+        }
+
+        viewModel.filteredEntries.observe(viewLifecycleOwner) {
+            if (currentPath.isEmpty()) currentPath = viewModel.rootPath
+            updateView()
+            swipeRefresh.isRefreshing = false
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        layoutManager.spanCount = savedColumns()
+        adapter.notifyItemRangeChanged(0, adapter.itemCount)
+        updateToolbarTitle()
+    }
+
+    private fun updateView() {
+        updateToolbarTitle()
+        val entries = viewModel.filteredEntries.value ?: return
+        val path = currentPath
+        updateJob?.cancel()
+        updateJob = viewLifecycleOwner.lifecycleScope.launch {
+            val items = withContext(Dispatchers.Default) {
+                val subfolders = childFolders(path, entries)
+                val images = entries.filter { it.dir == path }.map { GalleryItem.Image(it.uri, it.path) }
+                subfolders + images
+            }
+            adapter.updateItems(items)
+            recyclerView.scrollToPosition(0)
+        }
+    }
+
+    private fun updateToolbarTitle() {
+        val label = if (currentPath == viewModel.rootPath || currentPath.isEmpty())
+            "Easy Gallery" else currentPath.substringAfterLast("/")
+        (requireActivity() as AppCompatActivity).supportActionBar?.apply {
+            title = label
+            setDisplayHomeAsUpEnabled(pathStack.isNotEmpty())
+        }
+    }
+
+    private fun childFolders(parent: String, entries: List<GalleryViewModel.ImageEntry>): List<GalleryItem.Folder> {
+        val prefix = "$parent/"
+        val folderMap = LinkedHashMap<String, MutableList<GalleryViewModel.ImageEntry>>()
+        for (entry in entries) {
+            if (!entry.dir.startsWith(prefix)) continue
+            val nextSegment = entry.dir.removePrefix(prefix).substringBefore("/")
+            folderMap.getOrPut("$prefix$nextSegment") { mutableListOf() }.add(entry)
+        }
+        return folderMap.entries.map { (path, entries) ->
+            GalleryItem.Folder(path, path.substringAfterLast("/"), entries.size, entries.first().uri)
+        }
+    }
+
+    private fun savedColumns() =
+        requireContext().getSharedPreferences("gallery_prefs", android.content.Context.MODE_PRIVATE)
+            .getInt("columns", 3)
+}

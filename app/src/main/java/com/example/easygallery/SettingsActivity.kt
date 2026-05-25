@@ -20,6 +20,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.example.easygallery.db.AppDatabase
+import com.example.easygallery.search.EmbeddingManager
+import com.example.easygallery.search.ModelManager
+import com.example.easygallery.ocr.OcrManager
+import com.example.easygallery.objects.ObjectDetectionManager
+import com.example.easygallery.objects.YoloModelManager
+import com.example.easygallery.faces.FaceModelManager
+import com.example.easygallery.faces.FaceIndexManager
+import com.example.easygallery.faces.FacesStore
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -503,8 +512,8 @@ class SettingsActivity : AppCompatActivity() {
         reindexFaceButton.setOnClickListener {
             FaceIndexManager.stop()
             lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                VectorStore.init(applicationContext)
-                VectorStore.clearFaces()
+                AppDatabase.init(applicationContext)
+                FacesStore.clearFaces()
                 FaceIndexManager.start(applicationContext)
                 IndexingForegroundService.start(applicationContext)
             }

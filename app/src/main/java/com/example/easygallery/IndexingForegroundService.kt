@@ -13,6 +13,10 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
+import com.example.easygallery.search.EmbeddingManager
+import com.example.easygallery.ocr.OcrManager
+import com.example.easygallery.objects.ObjectDetectionManager
+import com.example.easygallery.faces.FaceIndexManager
 
 class IndexingForegroundService : Service() {
 

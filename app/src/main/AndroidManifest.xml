@@ -37,7 +37,7 @@
             android:name=".IndexingForegroundService"
             android:foregroundServiceType="dataSync" />
         <activity
-            android:name=".ImageDetailActivity"
+            android:name=".gallery.ImageDetailActivity"
             android:theme="@style/Theme.AppCompat.NoActionBar" />
 
     </application>

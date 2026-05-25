@@ -3,6 +3,12 @@ package com.example.easygallery
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
 import androidx.viewpager2.adapter.FragmentStateAdapter
+import com.example.easygallery.gallery.GalleryFragment
+import com.example.easygallery.search.SearchFragment
+import com.example.easygallery.objects.ObjectBrowseFragment
+import com.example.easygallery.map.MapFragment
+import com.example.easygallery.faces.PeopleFragment
+import com.example.easygallery.gallery.FilterFragment
 
 enum class TabType(val stableId: Long, val label: String) {
     GALLERY(0, "Gallery"),
