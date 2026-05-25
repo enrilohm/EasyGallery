@@ -13,6 +13,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,7 +22,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import com.example.easygallery.db.AppDatabase
 import com.example.easygallery.ocr.OcrStore
-import com.example.easygallery.objects.ObjectsStore
 import com.example.easygallery.gallery.GalleryViewModel
 import com.example.easygallery.gallery.GalleryAdapter
 import com.example.easygallery.gallery.GalleryItem
@@ -35,12 +35,14 @@ class SearchFragment : Fragment() {
     private lateinit var recyclerView: RecyclerView
     private lateinit var searchInput: TextInputEditText
     private lateinit var swipeRefresh: SwipeRefreshLayout
+    private lateinit var searchModeToggle: MaterialButtonToggleGroup
     private var searchJob: Job? = null
 
     override fun onResume() {
         super.onResume()
         (requireActivity() as androidx.appcompat.app.AppCompatActivity)
             .supportActionBar?.setDisplayHomeAsUpEnabled(false)
+        if (::searchModeToggle.isInitialized) updateToggleVisibility()
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View =
@@ -66,12 +68,27 @@ class SearchFragment : Fragment() {
         swipeRefresh = view.findViewById(R.id.swipeRefresh)
         swipeRefresh.setOnRefreshListener { runSearch(searchInput.text?.toString()) }
 
+        searchModeToggle = view.findViewById(R.id.searchModeToggle)
+        searchModeToggle.check(R.id.btnModeSemantic)
+        searchModeToggle.addOnButtonCheckedListener { _, _, _ ->
+            runSearch(searchInput.text?.toString())
+        }
+
         searchInput = view.findViewById(R.id.searchInput)
         searchInput.addTextChangedListener { text -> runSearch(text?.toString()) }
 
         viewModel.filterState.observe(viewLifecycleOwner) {
+            updateToggleVisibility()
             runSearch(searchInput.text?.toString())
         }
+        updateToggleVisibility()
+    }
+
+    private fun updateToggleVisibility() {
+        val prefs = requireContext().getSharedPreferences("gallery_prefs", Context.MODE_PRIVATE)
+        val bothEnabled = prefs.getBoolean("clip_search_enabled", false) &&
+                prefs.getBoolean("ocr_enabled", false)
+        searchModeToggle.visibility = if (bothEnabled) View.VISIBLE else View.GONE
     }
 
     private fun runSearch(query: String?) {
@@ -82,14 +99,17 @@ class SearchFragment : Fragment() {
             return
         }
 
-        val clipEnabled = requireContext()
-            .getSharedPreferences("gallery_prefs", Context.MODE_PRIVATE)
-            .getBoolean("clip_search_enabled", false)
-        if (!clipEnabled) {
+        val prefs = requireContext().getSharedPreferences("gallery_prefs", Context.MODE_PRIVATE)
+        val clipEnabled = prefs.getBoolean("clip_search_enabled", false)
+        val ocrEnabled = prefs.getBoolean("ocr_enabled", false)
+
+        if (!clipEnabled && !ocrEnabled) {
             adapter.updateItems(emptyList())
             swipeRefresh.isRefreshing = false
             return
         }
+
+        val useOcr = ocrEnabled && (!clipEnabled || searchModeToggle.checkedButtonId == R.id.btnModeOcr)
 
         searchJob = viewLifecycleOwner.lifecycleScope.launch {
             val ctx = requireContext()
@@ -98,24 +118,15 @@ class SearchFragment : Fragment() {
 
             val paths = withContext(Dispatchers.IO) {
                 AppDatabase.init(ctx)
-
-                // 1. OCR text hits
-                val textHits = OcrStore.findByText(query, limit = 50, allowedPaths = allowed)
-
-                // 2. Object label hits
-                val labelHits = ObjectsStore.findByLabel(query, limit = 50, allowedPaths = allowed)
-                    .filter { it !in textHits }
-
-                // 3. CLIP embedding similarity
-                val soFar = textHits + labelHits
-                ClipTextEncoder.load(ctx)
-                val embedding = ClipTextEncoder.encode(query)
-                val embeddingHits = if (embedding != null)
-                    ClipStore.findSimilar(embedding, topK = 200, allowedPaths = allowed)
-                        .filter { it !in textHits && it !in labelHits }
-                else emptyList()
-
-                soFar + embeddingHits
+                if (useOcr) {
+                    OcrStore.findByText(query, limit = 200, allowedPaths = allowed)
+                } else {
+                    ClipTextEncoder.load(ctx)
+                    val embedding = ClipTextEncoder.encode(query)
+                    if (embedding != null)
+                        ClipStore.findSimilar(embedding, topK = 200, allowedPaths = allowed)
+                    else emptyList()
+                }
             }
 
             val results = paths.map { path ->
