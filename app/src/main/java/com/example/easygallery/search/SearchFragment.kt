@@ -37,7 +37,7 @@ class SearchFragment : Fragment() {
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var searchModeToggle: MaterialButtonToggleGroup
     private var searchJob: Job? = null
-    private var similarPath: String? = null
+    private var similarReq: GalleryViewModel.SimilarRequest? = null
 
     override fun onResume() {
         super.onResume()
@@ -87,9 +87,9 @@ class SearchFragment : Fragment() {
             updateToggleVisibility()
             runSearch(searchInput.text?.toString())
         }
-        viewModel.similarRequest.observe(viewLifecycleOwner) { path ->
-            if (path != null) {
-                similarPath = path
+        viewModel.similarRequest.observe(viewLifecycleOwner) { req ->
+            if (req != null) {
+                similarReq = req
                 searchInput.setText("")
                 runSearch(null)
                 viewModel.consumeSimilar()
@@ -108,8 +108,8 @@ class SearchFragment : Fragment() {
     private fun runSearch(query: String?) {
         searchJob?.cancel()
         // Typing a text query cancels any active similar-image search.
-        if (!query.isNullOrBlank()) similarPath = null
-        val similar = similarPath
+        if (!query.isNullOrBlank()) similarReq = null
+        val similar = similarReq
 
         if (query.isNullOrBlank() && similar == null) {
             adapter.updateItems(emptyList())
@@ -122,7 +122,7 @@ class SearchFragment : Fragment() {
         val ocrEnabled = prefs.getBoolean("ocr_enabled", false)
 
         if (similar != null && !clipEnabled) {
-            similarPath = null
+            similarReq = null
             adapter.updateItems(emptyList())
             swipeRefresh.isRefreshing = false
             return
@@ -146,15 +146,24 @@ class SearchFragment : Fragment() {
                 AppDatabase.init(ctx)
                 when {
                     similar != null -> {
-                        val emb = ClipStore.embeddingForPath(similar) ?: run {
+                        val crop = similar.crop
+                        // A cropped region has no precomputed embedding, so always
+                        // encode it fresh. Whole-image search reuses the index.
+                        val emb = if (crop != null) {
                             ClipEncoder.load(ctx)
-                            ClipEncoder.decodeBitmap(similar)?.let {
+                            ClipEncoder.decodeBitmapRegion(similar.path, crop)?.let {
                                 ClipEncoder.encodeBatch(listOf(it)).firstOrNull()
+                            }
+                        } else {
+                            ClipStore.embeddingForPath(similar.path) ?: run {
+                                ClipEncoder.load(ctx)
+                                ClipEncoder.decodeBitmap(similar.path)?.let {
+                                    ClipEncoder.encodeBatch(listOf(it)).firstOrNull()
+                                }
                             }
                         }
                         if (emb != null)
                             ClipStore.findSimilar(emb, topK = 200, allowedPaths = allowed)
-                                .filter { it != similar }
                         else emptyList()
                     }
                     useOcr -> OcrStore.findByText(query!!, limit = 200, allowedPaths = allowed)

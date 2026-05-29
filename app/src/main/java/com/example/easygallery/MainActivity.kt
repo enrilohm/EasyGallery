@@ -19,6 +19,8 @@ import kotlinx.coroutines.launch
 import com.example.easygallery.gallery.GalleryFragment
 import com.example.easygallery.gallery.GalleryViewModel
 import com.example.easygallery.search.ClipTextEncoder
+import com.example.easygallery.search.ClipStore
+import com.example.easygallery.db.AppDatabase
 
 class MainActivity : AppCompatActivity() {
 
@@ -70,6 +72,8 @@ class MainActivity : AppCompatActivity() {
         if (clipEnabled) {
             lifecycleScope.launch(Dispatchers.IO) {
                 ClipTextEncoder.load(applicationContext)
+                AppDatabase.init(applicationContext)
+                ClipStore.preload()
             }
         }
     }
@@ -89,12 +93,16 @@ class MainActivity : AppCompatActivity() {
     private fun handleSimilarIntent(intent: Intent?) {
         val path = intent?.getStringExtra(EXTRA_SIMILAR_PATH) ?: return
         intent.removeExtra(EXTRA_SIMILAR_PATH)
+        val cropArr = intent.getFloatArrayExtra(EXTRA_SIMILAR_CROP)
+        intent.removeExtra(EXTRA_SIMILAR_CROP)
+        val crop = cropArr?.takeIf { it.size == 4 }
+            ?.let { android.graphics.RectF(it[0], it[1], it[2], it[3]) }
         val searchIndex = currentTabs.indexOf(TabType.SEARCH)
         if (searchIndex >= 0) {
             viewPager.setCurrentItem(searchIndex, false)
             tabLayout.getTabAt(searchIndex)?.select()
         }
-        viewModel.requestSimilar(path)
+        viewModel.requestSimilar(path, crop)
     }
 
     private fun buildTabs(): List<TabType> {
@@ -168,5 +176,6 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val PERMISSION_REQUEST = 1
         const val EXTRA_SIMILAR_PATH = "similar_path"
+        const val EXTRA_SIMILAR_CROP = "similar_crop"
     }
 }

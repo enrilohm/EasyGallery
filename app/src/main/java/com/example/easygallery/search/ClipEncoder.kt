@@ -67,6 +67,55 @@ object ClipEncoder {
         return scaled
     }
 
+    /**
+     * Decode only the given region (normalized 0..1 of the full image) and
+     * scale it to IMG_SIZE for encoding. Used by sub-image similar search.
+     */
+    fun decodeBitmapRegion(path: String, crop: android.graphics.RectF): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        val w = bounds.outWidth
+        val h = bounds.outHeight
+        if (w <= 0 || h <= 0) {
+            android.util.Log.e(TAG, "Cannot decode bounds: $path")
+            return null
+        }
+        val left = (crop.left.coerceIn(0f, 1f) * w).toInt()
+        val top = (crop.top.coerceIn(0f, 1f) * h).toInt()
+        val right = (crop.right.coerceIn(0f, 1f) * w).toInt().coerceAtLeast(left + 1)
+        val bottom = (crop.bottom.coerceIn(0f, 1f) * h).toInt().coerceAtLeast(top + 1)
+        val region = android.graphics.Rect(left, top, right.coerceAtMost(w), bottom.coerceAtMost(h))
+
+        val decoder = try {
+            @Suppress("DEPRECATION")
+            android.graphics.BitmapRegionDecoder.newInstance(path, false)
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "RegionDecoder failed: ${e.message}")
+            null
+        } ?: return null
+
+        var sample = 1
+        while (region.width() / (sample * 2) >= IMG_SIZE &&
+               region.height() / (sample * 2) >= IMG_SIZE) {
+            sample *= 2
+        }
+        val opts = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val raw = try {
+            decoder.decodeRegion(region, opts)
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "decodeRegion failed: ${e.message}")
+            null
+        } finally {
+            decoder.recycle()
+        } ?: return null
+        val scaled = Bitmap.createScaledBitmap(raw, IMG_SIZE, IMG_SIZE, true)
+        if (scaled !== raw) raw.recycle()
+        return scaled
+    }
+
     fun encodeBatch(bitmaps: List<Bitmap>): List<FloatArray?> {
         val s = session ?: return List(bitmaps.size) { null }
         val n = bitmaps.size

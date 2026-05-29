@@ -20,6 +20,12 @@ object ClipStore {
 
     fun count(): Int = box.count().toInt()
 
+    /** Load all embeddings into memory so the first search isn't slow. */
+    fun preload() {
+        if (embeddingCache != null) return
+        embeddingCache = box.all.mapNotNull { e -> e.embedding?.let { e.path to it } }
+    }
+
     fun embeddingForPath(path: String): FloatArray? {
         embeddingCache?.firstOrNull { it.first == path }?.let { return it.second }
         return box.query()
@@ -28,9 +34,8 @@ object ClipStore {
     }
 
     fun findSimilar(query: FloatArray, topK: Int, allowedPaths: Set<String>? = null): List<String> {
-        val cache = embeddingCache ?: box.all
-            .mapNotNull { e -> e.embedding?.let { e.path to it } }
-            .also { embeddingCache = it }
+        preload()
+        val cache = embeddingCache ?: emptyList()
         return (if (allowedPaths != null) cache.filter { it.first in allowedPaths } else cache)
             .map { (path, emb) -> path to dot(query, emb) }
             .sortedByDescending { it.second }

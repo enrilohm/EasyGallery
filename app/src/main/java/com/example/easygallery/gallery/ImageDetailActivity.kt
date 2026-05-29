@@ -39,6 +39,7 @@ class ImageDetailActivity : AppCompatActivity() {
     private lateinit var adapter: DetailPagerAdapter
     private lateinit var favoriteButton: ImageButton
     private lateinit var hiddenButton: ImageButton
+    private var clipEnabled = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -92,18 +93,12 @@ class ImageDetailActivity : AppCompatActivity() {
         }
 
         val findSimilarButton = findViewById<ImageButton>(R.id.findSimilarButton)
-        val clipEnabled = getSharedPreferences("gallery_prefs", MODE_PRIVATE)
+        clipEnabled = getSharedPreferences("gallery_prefs", MODE_PRIVATE)
             .getBoolean("clip_search_enabled", false)
         findSimilarButton.visibility = if (clipEnabled) View.VISIBLE else View.GONE
         findSimilarButton.setOnClickListener {
-            val path = paths[pager.currentItem]
-            startActivity(
-                Intent(this, MainActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                    putExtra(MainActivity.EXTRA_SIMILAR_PATH, path)
-                }
-            )
-            finish()
+            val crop = holders[pager.currentItem]?.cropFrame?.selectionCrop
+            launchSimilar(paths[pager.currentItem], crop)
         }
 
         hiddenButton.setOnClickListener {
@@ -125,6 +120,20 @@ class ImageDetailActivity : AppCompatActivity() {
                 holders[pager.currentItem]?.overlay?.clear()
             }
         }
+    }
+
+    private fun launchSimilar(path: String, crop: RectF?) {
+        startActivity(
+            Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                putExtra(MainActivity.EXTRA_SIMILAR_PATH, path)
+                if (crop != null) putExtra(
+                    MainActivity.EXTRA_SIMILAR_CROP,
+                    floatArrayOf(crop.left, crop.top, crop.right, crop.bottom)
+                )
+            }
+        )
+        finish()
     }
 
     private fun updateHiddenButton(path: String) {
@@ -184,6 +193,7 @@ class ImageDetailActivity : AppCompatActivity() {
         inner class VH(view: View) : RecyclerView.ViewHolder(view) {
             val photoView: PhotoView = view.findViewById(R.id.photoView)
             val overlay: FaceOverlayView = view.findViewById(R.id.faceOverlay)
+            val cropFrame: CropFrameLayout = view as CropFrameLayout
 
             init {
                 overlay.attach(photoView)
@@ -198,6 +208,8 @@ class ImageDetailActivity : AppCompatActivity() {
         override fun onBindViewHolder(holder: VH, position: Int) {
             holders.put(position, holder)
             holder.overlay.clear()
+            holder.cropFrame.selectionEnabled = clipEnabled
+            holder.cropFrame.selectionCrop = null
             holder.photoView.load(Uri.parse(items[position]))
         }
     }

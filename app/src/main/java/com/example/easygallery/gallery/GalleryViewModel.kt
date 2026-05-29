@@ -3,6 +3,7 @@ package com.example.easygallery.gallery
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
+import android.graphics.RectF
 import android.net.Uri
 import android.provider.MediaStore
 import androidx.lifecycle.MediatorLiveData
@@ -35,9 +36,14 @@ class GalleryViewModel : ViewModel() {
     val filterState = MutableLiveData(FilterState())
 
     // One-shot request to run a "similar image" search for the given path.
-    // Set null once consumed so it doesn't re-fire on observer re-attach.
-    val similarRequest = MutableLiveData<String?>(null)
-    fun requestSimilar(path: String) { similarRequest.value = path }
+    // crop, if non-null, is a region (normalized 0..1 of the full image) to
+    // search instead of the whole image. Set null once consumed so it doesn't
+    // re-fire on observer re-attach.
+    data class SimilarRequest(val path: String, val crop: RectF? = null)
+    val similarRequest = MutableLiveData<SimilarRequest?>(null)
+    fun requestSimilar(path: String, crop: RectF? = null) {
+        similarRequest.value = SimilarRequest(path, crop)
+    }
     fun consumeSimilar() { similarRequest.value = null }
 
     @Volatile private var favoritePaths: Set<String> = emptySet()
