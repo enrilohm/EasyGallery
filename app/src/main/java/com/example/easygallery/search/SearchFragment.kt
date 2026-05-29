@@ -37,6 +37,7 @@ class SearchFragment : Fragment() {
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var searchModeToggle: MaterialButtonToggleGroup
     private var searchJob: Job? = null
+    private var similarPath: String? = null
 
     override fun onResume() {
         super.onResume()
@@ -51,9 +52,14 @@ class SearchFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         adapter = GalleryAdapter(
             onFolderClick = {},
-            onImageClick = { _, position ->
+            onImageClick = { item, _ ->
+                // Resolve the tapped item's position in the current snapshot so the list
+                // and index can't diverge if results were re-ranked since bind time
+                // (e.g. background indexing adding embeddings during a similar search).
                 val paths = adapter.currentPaths()
-                ImageDetailActivity.open(requireContext(), paths, position)
+                val index = paths.indexOf(item.path)
+                if (index >= 0) ImageDetailActivity.open(requireContext(), paths, index)
+                else ImageDetailActivity.open(requireContext(), listOf(item.path), 0)
             }
         )
 
@@ -81,6 +87,14 @@ class SearchFragment : Fragment() {
             updateToggleVisibility()
             runSearch(searchInput.text?.toString())
         }
+        viewModel.similarRequest.observe(viewLifecycleOwner) { path ->
+            if (path != null) {
+                similarPath = path
+                searchInput.setText("")
+                runSearch(null)
+                viewModel.consumeSimilar()
+            }
+        }
         updateToggleVisibility()
     }
 
@@ -93,7 +107,11 @@ class SearchFragment : Fragment() {
 
     private fun runSearch(query: String?) {
         searchJob?.cancel()
-        if (query.isNullOrBlank()) {
+        // Typing a text query cancels any active similar-image search.
+        if (!query.isNullOrBlank()) similarPath = null
+        val similar = similarPath
+
+        if (query.isNullOrBlank() && similar == null) {
             adapter.updateItems(emptyList())
             swipeRefresh.isRefreshing = false
             return
@@ -103,13 +121,21 @@ class SearchFragment : Fragment() {
         val clipEnabled = prefs.getBoolean("clip_search_enabled", false)
         val ocrEnabled = prefs.getBoolean("ocr_enabled", false)
 
-        if (!clipEnabled && !ocrEnabled) {
+        if (similar != null && !clipEnabled) {
+            similarPath = null
             adapter.updateItems(emptyList())
             swipeRefresh.isRefreshing = false
             return
         }
 
-        val useOcr = ocrEnabled && (!clipEnabled || searchModeToggle.checkedButtonId == R.id.btnModeOcr)
+        if (similar == null && !clipEnabled && !ocrEnabled) {
+            adapter.updateItems(emptyList())
+            swipeRefresh.isRefreshing = false
+            return
+        }
+
+        val useOcr = similar == null && ocrEnabled &&
+                (!clipEnabled || searchModeToggle.checkedButtonId == R.id.btnModeOcr)
 
         searchJob = viewLifecycleOwner.lifecycleScope.launch {
             val ctx = requireContext()
@@ -118,14 +144,27 @@ class SearchFragment : Fragment() {
 
             val paths = withContext(Dispatchers.IO) {
                 AppDatabase.init(ctx)
-                if (useOcr) {
-                    OcrStore.findByText(query, limit = 200, allowedPaths = allowed)
-                } else {
-                    ClipTextEncoder.load(ctx)
-                    val embedding = ClipTextEncoder.encode(query)
-                    if (embedding != null)
-                        ClipStore.findSimilar(embedding, topK = 200, allowedPaths = allowed)
-                    else emptyList()
+                when {
+                    similar != null -> {
+                        val emb = ClipStore.embeddingForPath(similar) ?: run {
+                            ClipEncoder.load(ctx)
+                            ClipEncoder.decodeBitmap(similar)?.let {
+                                ClipEncoder.encodeBatch(listOf(it)).firstOrNull()
+                            }
+                        }
+                        if (emb != null)
+                            ClipStore.findSimilar(emb, topK = 200, allowedPaths = allowed)
+                                .filter { it != similar }
+                        else emptyList()
+                    }
+                    useOcr -> OcrStore.findByText(query!!, limit = 200, allowedPaths = allowed)
+                    else -> {
+                        ClipTextEncoder.load(ctx)
+                        val embedding = ClipTextEncoder.encode(query!!)
+                        if (embedding != null)
+                            ClipStore.findSimilar(embedding, topK = 200, allowedPaths = allowed)
+                        else emptyList()
+                    }
                 }
             }
 

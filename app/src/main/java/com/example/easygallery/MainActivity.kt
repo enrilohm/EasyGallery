@@ -63,6 +63,7 @@ class MainActivity : AppCompatActivity() {
 
         applyTabs()
         requestPermissionAndLoad()
+        handleSimilarIntent(intent)
 
         val clipEnabled = getSharedPreferences("gallery_prefs", MODE_PRIVATE)
             .getBoolean("clip_search_enabled", false)
@@ -77,6 +78,23 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         applyTabs()
         viewModel.refreshHiddenPaths(this)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleSimilarIntent(intent)
+    }
+
+    private fun handleSimilarIntent(intent: Intent?) {
+        val path = intent?.getStringExtra(EXTRA_SIMILAR_PATH) ?: return
+        intent.removeExtra(EXTRA_SIMILAR_PATH)
+        val searchIndex = currentTabs.indexOf(TabType.SEARCH)
+        if (searchIndex >= 0) {
+            viewPager.setCurrentItem(searchIndex, false)
+            tabLayout.getTabAt(searchIndex)?.select()
+        }
+        viewModel.requestSimilar(path)
     }
 
     private fun buildTabs(): List<TabType> {
@@ -149,5 +167,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val PERMISSION_REQUEST = 1
+        const val EXTRA_SIMILAR_PATH = "similar_path"
     }
 }

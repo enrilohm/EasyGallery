@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.example.easygallery.faces.FaceOverlayView
 import com.example.easygallery.faces.FacesStore
+import com.example.easygallery.MainActivity
 import com.example.easygallery.R
 
 class ImageDetailActivity : AppCompatActivity() {
@@ -88,6 +89,21 @@ class ImageDetailActivity : AppCompatActivity() {
         findViewById<View>(R.id.infoButton).setOnClickListener {
             val path = paths[pager.currentItem]
             ImageInfoSheet.show(supportFragmentManager, Uri.fromFile(File(path)), path)
+        }
+
+        val findSimilarButton = findViewById<ImageButton>(R.id.findSimilarButton)
+        val clipEnabled = getSharedPreferences("gallery_prefs", MODE_PRIVATE)
+            .getBoolean("clip_search_enabled", false)
+        findSimilarButton.visibility = if (clipEnabled) View.VISIBLE else View.GONE
+        findSimilarButton.setOnClickListener {
+            val path = paths[pager.currentItem]
+            startActivity(
+                Intent(this, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    putExtra(MainActivity.EXTRA_SIMILAR_PATH, path)
+                }
+            )
+            finish()
         }
 
         hiddenButton.setOnClickListener {

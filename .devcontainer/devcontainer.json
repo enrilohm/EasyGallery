@@ -10,7 +10,9 @@
     "runArgs": ["--network=host"],
     "mounts": [
         // persist Gradle cache across container rebuilds
-        "source=${localEnv:HOME}/.gradle,target=/root/.gradle,type=bind,consistency=cached"
+        "source=${localEnv:HOME}/.gradle,target=/root/.gradle,type=bind,consistency=cached",
+        // persist adb pairing keys + debug signing keystore so rebuilds don't force re-pair / reinstall
+        "source=${localEnv:HOME}/.android,target=/root/.android,type=bind,consistency=cached"
     ],
     // point Gradle at the SDK installed in the image
     "postCreateCommand": "npm install -g @anthropic-ai/claude-code && echo sdk.dir=${ANDROID_SDK_ROOT} > local.properties",

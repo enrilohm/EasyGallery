@@ -20,6 +20,13 @@ object ClipStore {
 
     fun count(): Int = box.count().toInt()
 
+    fun embeddingForPath(path: String): FloatArray? {
+        embeddingCache?.firstOrNull { it.first == path }?.let { return it.second }
+        return box.query()
+            .equal(ClipEntity_.path, path, StringOrder.CASE_SENSITIVE)
+            .build().use { it.findFirst()?.embedding }
+    }
+
     fun findSimilar(query: FloatArray, topK: Int, allowedPaths: Set<String>? = null): List<String> {
         val cache = embeddingCache ?: box.all
             .mapNotNull { e -> e.embedding?.let { e.path to it } }

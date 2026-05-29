@@ -34,6 +34,12 @@ class GalleryViewModel : ViewModel() {
     val loaded = MutableLiveData(false)
     val filterState = MutableLiveData(FilterState())
 
+    // One-shot request to run a "similar image" search for the given path.
+    // Set null once consumed so it doesn't re-fire on observer re-attach.
+    val similarRequest = MutableLiveData<String?>(null)
+    fun requestSimilar(path: String) { similarRequest.value = path }
+    fun consumeSimilar() { similarRequest.value = null }
+
     @Volatile private var favoritePaths: Set<String> = emptySet()
     @Volatile private var hiddenPaths: Set<String> = emptySet()
     @Volatile private var personIncludePaths: Set<String> = emptySet()

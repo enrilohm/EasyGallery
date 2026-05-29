@@ -52,8 +52,13 @@ class GalleryFragment : Fragment() {
                 backCallback.isEnabled = true
                 updateView()
             },
-            onImageClick = { _, index ->
-                ImageDetailActivity.open(requireContext(), adapter.currentPaths(), index)
+            onImageClick = { item, _ ->
+                // Resolve the tapped item's position in the current snapshot so the list
+                // and index can't diverge if the backing list changed since bind time.
+                val paths = adapter.currentPaths()
+                val index = paths.indexOf(item.path)
+                if (index >= 0) ImageDetailActivity.open(requireContext(), paths, index)
+                else ImageDetailActivity.open(requireContext(), listOf(item.path), 0)
             }
         )
 

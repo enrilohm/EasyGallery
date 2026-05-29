@@ -46,6 +46,17 @@
             android:alpha="0.8" />
 
         <ImageButton
+            android:id="@+id/findSimilarButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Find similar images"
+            android:padding="8dp"
+            android:src="@drawable/ic_find_similar"
+            android:visibility="gone"
+            android:alpha="0.8" />
+
+        <ImageButton
             android:id="@+id/hiddenButton"
             android:layout_width="48dp"
             android:layout_height="48dp"
