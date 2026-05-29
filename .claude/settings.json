@@ -2,7 +2,18 @@
   "permissions": {
     "allow": [
       "Bash(./gradlew assembleDebug --info)",
-      "Bash(./gradlew :app:compileDebugKotlin)"
+      "Bash(./gradlew :app:compileDebugKotlin)",
+      "Bash(./gradlew *)",
+      "Bash(adb devices)",
+      "Bash(adb connect *)",
+      "Bash(adb pair *)",
+      "Bash(adb mdns *)",
+      "Bash(adb install *)",
+      "Bash(adb -s * install *)",
+      "Bash(adb shell am start *)",
+      "Bash(adb logcat *)",
+      "Edit(*)",
+      "Write(*)"
     ]
   }
 }
