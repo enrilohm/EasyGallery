@@ -7,6 +7,7 @@ import io.objectbox.BoxStore
 object AppDatabase {
     private lateinit var store: BoxStore
 
+    @Synchronized
     fun init(context: Context) {
         if (::store.isInitialized) return
         context.applicationContext.getDatabasePath("embeddings.db").delete()

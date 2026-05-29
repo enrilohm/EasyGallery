@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import com.example.easygallery.gallery.GalleryFragment
 import com.example.easygallery.gallery.GalleryViewModel
 import com.example.easygallery.search.ClipTextEncoder
+import com.example.easygallery.search.ClipEncoder
 import com.example.easygallery.search.ClipStore
 import com.example.easygallery.db.AppDatabase
 
@@ -71,9 +72,11 @@ class MainActivity : AppCompatActivity() {
             .getBoolean("clip_search_enabled", false)
         if (clipEnabled) {
             lifecycleScope.launch(Dispatchers.IO) {
-                ClipTextEncoder.load(applicationContext)
                 AppDatabase.init(applicationContext)
                 ClipStore.preload()
+                // Pre-warm both encoders so the first search/crop isn't slow.
+                ClipTextEncoder.load(applicationContext)
+                ClipEncoder.load(applicationContext)
             }
         }
     }

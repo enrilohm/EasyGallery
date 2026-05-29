@@ -58,6 +58,23 @@ class ImageDetailActivity : AppCompatActivity() {
         pager.adapter = adapter
         pager.setCurrentItem(startIndex, false)
 
+        // Keep the top toolbar clear of the status bar / front-camera cutout.
+        val topBar = findViewById<View>(R.id.topBar)
+        val baseMargin = (topBar.layoutParams as ViewGroup.MarginLayoutParams)
+        val baseLeft = baseMargin.leftMargin
+        val baseTop = baseMargin.topMargin
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(topBar) { v, insets ->
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            (v.layoutParams as ViewGroup.MarginLayoutParams).apply {
+                topMargin = baseTop + bars.top
+                leftMargin = baseLeft + bars.left
+                v.layoutParams = this
+            }
+            insets
+        }
+
         val controller = WindowInsetsControllerCompat(window, pager)
         controller.hide(WindowInsetsCompat.Type.systemBars())
         controller.systemBarsBehavior =
@@ -123,9 +140,11 @@ class ImageDetailActivity : AppCompatActivity() {
     }
 
     private fun launchSimilar(path: String, crop: RectF?) {
+        // Launch a fresh MainActivity *on top* (no CLEAR_TOP, no finish) so the
+        // OS back stack records history: Back returns to this image, then to
+        // wherever it was opened from. Chains across repeated similar searches.
         startActivity(
             Intent(this, MainActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                 putExtra(MainActivity.EXTRA_SIMILAR_PATH, path)
                 if (crop != null) putExtra(
                     MainActivity.EXTRA_SIMILAR_CROP,
@@ -133,7 +152,6 @@ class ImageDetailActivity : AppCompatActivity() {
                 )
             }
         )
-        finish()
     }
 
     private fun updateHiddenButton(path: String) {
