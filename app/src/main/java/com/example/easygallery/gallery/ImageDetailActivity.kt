@@ -43,6 +43,7 @@ class ImageDetailActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        com.example.easygallery.SimilarNav.register(this)
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -140,9 +141,13 @@ class ImageDetailActivity : AppCompatActivity() {
     }
 
     private fun launchSimilar(path: String, crop: RectF?) {
-        // Launch a fresh MainActivity *on top* (no CLEAR_TOP, no finish) so the
-        // OS back stack records history: Back returns to this image, then to
-        // wherever it was opened from. Chains across repeated similar searches.
+        // Collapse any older similar-search layers first, keeping only the
+        // task-root gallery and this image detail. This caps the back stack at
+        // [gallery] -> [this image] -> [new results] instead of stacking a new
+        // MainActivity + ImageDetailActivity for every repeated similar search.
+        com.example.easygallery.SimilarNav.collapseExcept(this)
+        // Launch a fresh MainActivity *on top* so Back returns to this image
+        // (the last selection a search was started from), then to the gallery.
         startActivity(
             Intent(this, MainActivity::class.java).apply {
                 putExtra(MainActivity.EXTRA_SIMILAR_PATH, path)
@@ -152,6 +157,11 @@ class ImageDetailActivity : AppCompatActivity() {
                 )
             }
         )
+    }
+
+    override fun onDestroy() {
+        com.example.easygallery.SimilarNav.unregister(this)
+        super.onDestroy()
     }
 
     private fun updateHiddenButton(path: String) {

@@ -33,6 +33,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        SimilarNav.register(this)
         setContentView(R.layout.activity_main)
 
         setSupportActionBar(findViewById(R.id.toolbar))
@@ -85,6 +86,11 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         applyTabs()
         viewModel.refreshHiddenPaths(this)
+    }
+
+    override fun onDestroy() {
+        SimilarNav.unregister(this)
+        super.onDestroy()
     }
 
     override fun onNewIntent(intent: Intent) {
