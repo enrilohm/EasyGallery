@@ -55,6 +55,12 @@ class CropFrameLayout @JvmOverloads constructor(
     private var dx1 = 0f; private var dy1 = 0f   // finger 1 down position
     private val preview = RectF()
 
+    // Single-finger tap state — a tap (no movement, never became multi-touch)
+    // clears the current selection.
+    private var singleDownX = 0f
+    private var singleDownY = 0f
+    private var singleTapCandidate = false
+
     private val borderPaint = Paint().apply {
         color = Color.WHITE
         style = Paint.Style.STROKE
@@ -83,7 +89,12 @@ class CropFrameLayout @JvmOverloads constructor(
 
     private fun observe(ev: MotionEvent) {
         when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                singleDownX = ev.getX(0); singleDownY = ev.getY(0)
+                singleTapCandidate = true
+            }
             MotionEvent.ACTION_POINTER_DOWN -> {
+                singleTapCandidate = false   // became multi-touch, not a single tap
                 if (ev.pointerCount == 2) {
                     twoFingerActive = true
                     moved = false
@@ -93,6 +104,13 @@ class CropFrameLayout @JvmOverloads constructor(
                 }
             }
             MotionEvent.ACTION_MOVE -> {
+                if (singleTapCandidate && ev.pointerCount == 1 &&
+                    (abs(ev.getX(0) - singleDownX) > touchSlop ||
+                            abs(ev.getY(0) - singleDownY) > touchSlop)
+                ) {
+                    // Moved — it's a pan, not a tap.
+                    singleTapCandidate = false
+                }
                 if (twoFingerActive && ev.pointerCount >= 2) {
                     val cx0 = ev.getX(0); val cy0 = ev.getY(0)
                     val cx1 = ev.getX(1); val cy1 = ev.getY(1)
@@ -106,15 +124,27 @@ class CropFrameLayout @JvmOverloads constructor(
                     }
                 }
             }
-            MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP -> {
+            MotionEvent.ACTION_POINTER_UP -> {
                 if (twoFingerActive) {
                     if (!moved) commitSelection()
                     twoFingerActive = false
                     invalidate()
                 }
             }
+            MotionEvent.ACTION_UP -> {
+                if (twoFingerActive) {
+                    if (!moved) commitSelection()
+                    twoFingerActive = false
+                    invalidate()
+                } else if (singleTapCandidate && selectionCrop != null) {
+                    // Single-finger tap with an active selection clears it.
+                    selectionCrop = null
+                }
+                singleTapCandidate = false
+            }
             MotionEvent.ACTION_CANCEL -> {
                 twoFingerActive = false
+                singleTapCandidate = false
                 invalidate()
             }
         }
