@@ -128,6 +128,20 @@ class ImageDetailActivity : AppCompatActivity() {
             }
         }
 
+        findViewById<View>(R.id.shareButton).setOnClickListener {
+            val path = paths[pager.currentItem]
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this, "$packageName.fileprovider", File(path)
+            )
+            startActivity(Intent.createChooser(
+                Intent(Intent.ACTION_SEND).apply {
+                    type = "image/*"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }, null
+            ))
+        }
+
         val faceToggle = findViewById<ImageButton>(R.id.faceToggleButton)
         faceToggle.setOnClickListener {
             showFaces = !showFaces

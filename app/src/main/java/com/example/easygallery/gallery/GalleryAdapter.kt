@@ -13,11 +13,54 @@ import com.example.easygallery.R
 
 class GalleryAdapter(
     private val onFolderClick: (GalleryItem.Folder) -> Unit,
-    private val onImageClick: (GalleryItem.Image, Int) -> Unit = { _, _ -> }
+    private val onImageClick: (GalleryItem.Image, Int) -> Unit = { _, _ -> },
+    val onSelectionChanged: (Set<String>) -> Unit = {}
 ) : ListAdapter<GalleryItem, RecyclerView.ViewHolder>(DIFF) {
 
-    fun updateItems(newItems: List<GalleryItem>, onCommitted: (() -> Unit)? = null) =
+    private val selectedKeys = mutableSetOf<String>()
+    var inSelectionMode = false
+        private set
+
+    fun clearSelection() {
+        selectedKeys.clear()
+        inSelectionMode = false
+        notifyItemRangeChanged(0, itemCount)
+        onSelectionChanged(emptySet())
+    }
+
+    fun selectedKeys(): Set<String> = selectedKeys
+
+    private fun key(item: GalleryItem) = when (item) {
+        is GalleryItem.Image -> item.path
+        is GalleryItem.Folder -> item.path
+    }
+
+    private fun toggle(item: GalleryItem, position: Int) {
+        val k = key(item)
+        if (selectedKeys.contains(k)) selectedKeys.remove(k) else selectedKeys.add(k)
+        if (selectedKeys.isEmpty()) {
+            inSelectionMode = false
+            notifyItemRangeChanged(0, itemCount)
+        } else {
+            notifyItemChanged(position)
+        }
+        onSelectionChanged(selectedKeys.toSet())
+    }
+
+    private fun enterSelection(item: GalleryItem, position: Int) {
+        inSelectionMode = true
+        selectedKeys.add(key(item))
+        notifyItemRangeChanged(0, itemCount)
+        onSelectionChanged(selectedKeys.toSet())
+    }
+
+    fun updateItems(newItems: List<GalleryItem>, onCommitted: (() -> Unit)? = null) {
+        // Drop selected keys that are no longer in the new list
+        val newKeys = newItems.map { key(it) }.toSet()
+        selectedKeys.retainAll(newKeys)
+        if (selectedKeys.isEmpty()) inSelectionMode = false
         submitList(newItems, onCommitted)
+    }
 
     override fun getItemViewType(position: Int) = when (getItem(position)) {
         is GalleryItem.Folder -> VIEW_TYPE_FOLDER
@@ -33,18 +76,42 @@ class GalleryAdapter(
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-        when (val item = getItem(position)) {
+        val item = getItem(position)
+        val selected = selectedKeys.contains(key(item))
+        when (item) {
             is GalleryItem.Folder -> {
                 holder as FolderViewHolder
                 holder.thumbnail.load(item.coverUri)
                 holder.name.text = item.name
                 holder.count.text = item.count.toString()
-                holder.itemView.setOnClickListener { onFolderClick(item) }
+                holder.checkIcon.visibility = if (selected) View.VISIBLE else View.GONE
+                holder.chevronIcon.visibility = if (selected) View.GONE else View.VISIBLE
+                holder.selectionOverlay.visibility = if (selected) View.VISIBLE else View.GONE
+                holder.itemView.setOnClickListener {
+                    if (inSelectionMode) toggle(item, holder.bindingAdapterPosition)
+                    else onFolderClick(item)
+                }
+                holder.itemView.setOnLongClickListener {
+                    if (!inSelectionMode) enterSelection(item, holder.bindingAdapterPosition)
+                    else toggle(item, holder.bindingAdapterPosition)
+                    true
+                }
             }
             is GalleryItem.Image -> {
-                (holder as ImageViewHolder).imageView.load(item.uri)
+                holder as ImageViewHolder
+                holder.imageView.load(item.uri)
+                holder.selectionOverlay.visibility = if (selected) View.VISIBLE else View.GONE
+                holder.checkIcon.visibility = if (selected) View.VISIBLE else View.GONE
                 val imageIndex = currentList.take(position + 1).count { it is GalleryItem.Image } - 1
-                holder.itemView.setOnClickListener { onImageClick(item, imageIndex) }
+                holder.itemView.setOnClickListener {
+                    if (inSelectionMode) toggle(item, holder.bindingAdapterPosition)
+                    else onImageClick(item, imageIndex)
+                }
+                holder.itemView.setOnLongClickListener {
+                    if (!inSelectionMode) enterSelection(item, holder.bindingAdapterPosition)
+                    else toggle(item, holder.bindingAdapterPosition)
+                    true
+                }
             }
         }
     }
@@ -55,10 +122,15 @@ class GalleryAdapter(
         val thumbnail: ImageView = view.findViewById(R.id.folderThumbnail)
         val name: TextView = view.findViewById(R.id.folderName)
         val count: TextView = view.findViewById(R.id.folderCount)
+        val checkIcon: ImageView = view.findViewById(R.id.checkIcon)
+        val chevronIcon: ImageView = view.findViewById(R.id.chevronIcon)
+        val selectionOverlay: View = view.findViewById(R.id.selectionOverlay)
     }
 
     class ImageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val imageView: ImageView = view.findViewById(R.id.imageView)
+        val selectionOverlay: View = view.findViewById(R.id.selectionOverlay)
+        val checkIcon: ImageView = view.findViewById(R.id.checkIcon)
     }
 
     companion object {

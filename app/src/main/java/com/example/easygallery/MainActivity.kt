@@ -7,8 +7,10 @@ import android.os.Build
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.viewpager2.widget.ViewPager2
@@ -16,6 +18,11 @@ import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileInputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import com.example.easygallery.gallery.GalleryFragment
 import com.example.easygallery.gallery.GalleryViewModel
 import com.example.easygallery.search.ClipTextEncoder
@@ -154,12 +161,69 @@ class MainActivity : AppCompatActivity() {
         return true
     }
 
+    override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+        val inSelection = galleryFragment()?.isInSelectionMode() == true
+        menu.findItem(R.id.action_settings).isVisible = !inSelection
+        menu.findItem(R.id.action_share_zip).isVisible = inSelection
+        return true
+    }
+
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        if (item.itemId == R.id.action_settings) {
-            startActivity(Intent(this, SettingsActivity::class.java))
-            return true
+        when (item.itemId) {
+            R.id.action_settings -> {
+                startActivity(Intent(this, SettingsActivity::class.java))
+                return true
+            }
+            R.id.action_share_zip -> {
+                shareSelectionAsZip()
+                return true
+            }
         }
         return super.onOptionsItemSelected(item)
+    }
+
+    private fun galleryFragment() = supportFragmentManager.fragments
+        .filterIsInstance<GalleryFragment>().firstOrNull()
+
+    private fun shareSelectionAsZip() {
+        val entries = galleryFragment()?.resolveSelectedEntries() ?: return
+        if (entries.isEmpty()) return
+        lifecycleScope.launch {
+            val zipFile = withContext(Dispatchers.IO) {
+                val out = File(cacheDir, "selection.zip")
+                ZipOutputStream(out.outputStream().buffered()).use { zip ->
+                    val seenEntries = mutableSetOf<String>()
+                    for ((path, entryName) in entries) {
+                        val file = File(path)
+                        if (!file.exists()) continue
+                        // Deduplicate while preserving directory prefix
+                        val dir = entryName.substringBeforeLast("/", "")
+                        val base = entryName.substringAfterLast("/")
+                        val baseName = base.substringBeforeLast(".")
+                        val ext = base.substringAfterLast(".", "")
+                        var finalEntry = entryName
+                        var n = 1
+                        while (!seenEntries.add(finalEntry)) {
+                            finalEntry = if (dir.isEmpty()) "$baseName($n).$ext"
+                                         else "$dir/$baseName($n).$ext"
+                            n++
+                        }
+                        zip.putNextEntry(ZipEntry(finalEntry))
+                        FileInputStream(file).use { it.copyTo(zip) }
+                        zip.closeEntry()
+                    }
+                }
+                out
+            }
+            val uri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", zipFile)
+            startActivity(Intent.createChooser(
+                Intent(Intent.ACTION_SEND).apply {
+                    type = "application/zip"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }, null
+            ))
+        }
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {

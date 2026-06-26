@@ -67,6 +67,16 @@
             android:src="@drawable/ic_eye"
             android:alpha="0.8" />
 
+        <ImageButton
+            android:id="@+id/shareButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Share"
+            android:padding="8dp"
+            android:src="@drawable/ic_share"
+            android:alpha="0.8" />
+
     </LinearLayout>
 
     <ImageButton

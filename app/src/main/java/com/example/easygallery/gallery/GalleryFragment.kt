@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import com.example.easygallery.R
 
 class GalleryFragment : Fragment() {
@@ -35,6 +36,11 @@ class GalleryFragment : Fragment() {
 
     private val backCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
+            if (adapter.inSelectionMode) {
+                adapter.clearSelection()
+                isEnabled = pathStack.isNotEmpty()
+                return
+            }
             currentPath = pathStack.removeLast()
             if (pathStack.isEmpty()) isEnabled = false
             updateView(restoreScroll = true)
@@ -49,6 +55,7 @@ class GalleryFragment : Fragment() {
 
         adapter = GalleryAdapter(
             onFolderClick = { folder ->
+                adapter.clearSelection()
                 layoutManager.onSaveInstanceState()?.let { scrollState[currentPath] = it }
                 pathStack.addLast(currentPath)
                 currentPath = folder.path
@@ -56,12 +63,15 @@ class GalleryFragment : Fragment() {
                 updateView(restoreScroll = false)
             },
             onImageClick = { item, _ ->
-                // Resolve the tapped item's position in the current snapshot so the list
-                // and index can't diverge if the backing list changed since bind time.
                 val paths = adapter.currentPaths()
                 val index = paths.indexOf(item.path)
                 if (index >= 0) ImageDetailActivity.open(requireContext(), paths, index)
                 else ImageDetailActivity.open(requireContext(), listOf(item.path), 0)
+            },
+            onSelectionChanged = { selected ->
+                backCallback.isEnabled = selected.isNotEmpty() || pathStack.isNotEmpty()
+                updateToolbarTitle()
+                requireActivity().invalidateOptionsMenu()
             }
         )
 
@@ -121,11 +131,15 @@ class GalleryFragment : Fragment() {
     }
 
     fun updateToolbarTitle() {
-        val label = if (currentPath == viewModel.rootPath || currentPath.isEmpty())
-            "Easy Gallery" else currentPath.substringAfterLast("/")
+        val selected = adapter.selectedKeys()
+        val label = when {
+            selected.isNotEmpty() -> "${selected.size} selected"
+            currentPath == viewModel.rootPath || currentPath.isEmpty() -> "Easy Gallery"
+            else -> currentPath.substringAfterLast("/")
+        }
         (requireActivity() as AppCompatActivity).supportActionBar?.apply {
             title = label
-            setDisplayHomeAsUpEnabled(pathStack.isNotEmpty())
+            setDisplayHomeAsUpEnabled(pathStack.isNotEmpty() || selected.isNotEmpty())
         }
     }
 
@@ -149,6 +163,34 @@ class GalleryFragment : Fragment() {
         return folderMap.entries.map { (path, pair) ->
             GalleryItem.Folder(path, path.substringAfterLast("/"), pair.first, pair.second)
         }
+    }
+
+    fun isInSelectionMode() = adapter.inSelectionMode
+
+    // Returns (absolutePath, zipEntryName) for each selected image.
+    // For individually selected images: entry name is just the filename.
+    // For selected folders: entry name preserves the path relative to the folder's parent.
+    fun resolveSelectedEntries(): List<Pair<String, String>> {
+        val keys = adapter.selectedKeys()
+        val entries = viewModel.filteredEntries.value ?: return emptyList()
+        val result = mutableListOf<Pair<String, String>>()
+        val seen = mutableSetOf<String>()
+        for (entry in entries) {
+            if (!seen.add(entry.path)) continue
+            val matchedFolder = keys.firstOrNull { k ->
+                entry.dir == k || entry.dir.startsWith("$k/")
+            }
+            when {
+                matchedFolder != null -> {
+                    // Preserve structure relative to the folder's parent dir
+                    val anchor = matchedFolder.substringBeforeLast("/")
+                    val relative = entry.path.removePrefix("$anchor/")
+                    result.add(entry.path to relative)
+                }
+                keys.contains(entry.path) -> result.add(entry.path to File(entry.path).name)
+            }
+        }
+        return result
     }
 
     private fun savedColumns() =
