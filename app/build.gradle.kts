@@ -62,7 +62,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.androidx.exifinterface)
     implementation(libs.onnxruntime.android)
-    implementation(libs.mlkit.text.recognition)
+    implementation(libs.tesseract4android)
     implementation(libs.litert)
     implementation(libs.osmdroid)
     implementation(libs.osmbonuspack)
