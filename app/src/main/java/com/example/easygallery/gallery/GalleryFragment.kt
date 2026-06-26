@@ -31,12 +31,13 @@ class GalleryFragment : Fragment() {
     private val pathStack = ArrayDeque<String>()
     private var updateJob: Job? = null
     private var dirMap: Map<String, List<GalleryViewModel.ImageEntry>> = emptyMap()
+    private val scrollState = mutableMapOf<String, android.os.Parcelable>()
 
     private val backCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
             currentPath = pathStack.removeLast()
             if (pathStack.isEmpty()) isEnabled = false
-            updateView()
+            updateView(restoreScroll = true)
         }
     }
 
@@ -48,10 +49,11 @@ class GalleryFragment : Fragment() {
 
         adapter = GalleryAdapter(
             onFolderClick = { folder ->
+                layoutManager.onSaveInstanceState()?.let { scrollState[currentPath] = it }
                 pathStack.addLast(currentPath)
                 currentPath = folder.path
                 backCallback.isEnabled = true
-                updateView()
+                updateView(restoreScroll = false)
             },
             onImageClick = { item, _ ->
                 // Resolve the tapped item's position in the current snapshot so the list
@@ -89,7 +91,7 @@ class GalleryFragment : Fragment() {
             updateJob?.cancel()
             updateJob = viewLifecycleOwner.lifecycleScope.launch {
                 dirMap = withContext(Dispatchers.Default) { entries.groupBy { it.dir } }
-                updateView()
+                updateView(restoreScroll = true)
                 swipeRefresh.isRefreshing = false
             }
         }
@@ -105,14 +107,17 @@ class GalleryFragment : Fragment() {
         updateToolbarTitle()
     }
 
-    private fun updateView() {
+    private fun updateView(restoreScroll: Boolean = false) {
         updateToolbarTitle()
         val path = currentPath
         val map = dirMap
         val items = childFolders(path, map) +
             (map[path]?.map { GalleryItem.Image(it.uri, it.path) } ?: emptyList())
-        adapter.updateItems(items)
-        recyclerView.scrollToPosition(0)
+        val saved = if (restoreScroll) scrollState[path] else null
+        adapter.updateItems(items) {
+            if (saved != null) layoutManager.onRestoreInstanceState(saved)
+            else recyclerView.scrollToPosition(0)
+        }
     }
 
     fun updateToolbarTitle() {
