@@ -30,6 +30,7 @@ class GalleryFragment : Fragment() {
     private var currentPath = ""
     private val pathStack = ArrayDeque<String>()
     private var updateJob: Job? = null
+    private var dirMap: Map<String, List<GalleryViewModel.ImageEntry>> = emptyMap()
 
     private val backCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
@@ -83,34 +84,35 @@ class GalleryFragment : Fragment() {
             insets
         }
 
-        viewModel.filteredEntries.observe(viewLifecycleOwner) {
+        viewModel.filteredEntries.observe(viewLifecycleOwner) { entries ->
             if (currentPath.isEmpty()) currentPath = viewModel.rootPath
-            updateView()
-            swipeRefresh.isRefreshing = false
+            updateJob?.cancel()
+            updateJob = viewLifecycleOwner.lifecycleScope.launch {
+                dirMap = withContext(Dispatchers.Default) { entries.groupBy { it.dir } }
+                updateView()
+                swipeRefresh.isRefreshing = false
+            }
         }
     }
 
     override fun onResume() {
         super.onResume()
-        layoutManager.spanCount = savedColumns()
-        adapter.notifyItemRangeChanged(0, adapter.itemCount)
+        val cols = savedColumns()
+        if (layoutManager.spanCount != cols) {
+            layoutManager.spanCount = cols
+            adapter.notifyItemRangeChanged(0, adapter.itemCount)
+        }
         updateToolbarTitle()
     }
 
     private fun updateView() {
         updateToolbarTitle()
-        val entries = viewModel.filteredEntries.value ?: return
         val path = currentPath
-        updateJob?.cancel()
-        updateJob = viewLifecycleOwner.lifecycleScope.launch {
-            val items = withContext(Dispatchers.Default) {
-                val subfolders = childFolders(path, entries)
-                val images = entries.filter { it.dir == path }.map { GalleryItem.Image(it.uri, it.path) }
-                subfolders + images
-            }
-            adapter.updateItems(items)
-            recyclerView.scrollToPosition(0)
-        }
+        val map = dirMap
+        val items = childFolders(path, map) +
+            (map[path]?.map { GalleryItem.Image(it.uri, it.path) } ?: emptyList())
+        adapter.updateItems(items)
+        recyclerView.scrollToPosition(0)
     }
 
     fun updateToolbarTitle() {
@@ -122,16 +124,25 @@ class GalleryFragment : Fragment() {
         }
     }
 
-    private fun childFolders(parent: String, entries: List<GalleryViewModel.ImageEntry>): List<GalleryItem.Folder> {
+    private fun childFolders(
+        parent: String,
+        map: Map<String, List<GalleryViewModel.ImageEntry>>
+    ): List<GalleryItem.Folder> {
         val prefix = "$parent/"
-        val folderMap = LinkedHashMap<String, MutableList<GalleryViewModel.ImageEntry>>()
-        for (entry in entries) {
-            if (!entry.dir.startsWith(prefix)) continue
-            val nextSegment = entry.dir.removePrefix(prefix).substringBefore("/")
-            folderMap.getOrPut("$prefix$nextSegment") { mutableListOf() }.add(entry)
+        // keyed by immediate child folder path → total image count + first uri
+        val folderMap = LinkedHashMap<String, Pair<Int, android.net.Uri>>()
+        for ((dir, dirEntries) in map) {
+            if (!dir.startsWith(prefix)) continue
+            val nextSegment = dir.removePrefix(prefix).substringBefore("/")
+            val childPath = "$prefix$nextSegment"
+            val existing = folderMap[childPath]
+            folderMap[childPath] = if (existing == null)
+                dirEntries.size to dirEntries.first().uri
+            else
+                (existing.first + dirEntries.size) to existing.second
         }
-        return folderMap.entries.map { (path, entries) ->
-            GalleryItem.Folder(path, path.substringAfterLast("/"), entries.size, entries.first().uri)
+        return folderMap.entries.map { (path, pair) ->
+            GalleryItem.Folder(path, path.substringAfterLast("/"), pair.first, pair.second)
         }
     }
 
