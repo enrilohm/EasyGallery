@@ -37,8 +37,8 @@
 
     <ImageView
         android:id="@+id/checkIcon"
-        android:layout_width="24dp"
-        android:layout_height="24dp"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
         android:layout_marginEnd="8dp"
         android:src="@drawable/ic_check_circle"
         android:visibility="gone" />
@@ -56,7 +56,7 @@
         android:id="@+id/selectionOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#44FFFFFF"
+        android:background="#441E88E5"
         android:visibility="gone" />
 
 </FrameLayout>

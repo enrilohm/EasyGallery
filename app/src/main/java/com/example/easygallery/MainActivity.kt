@@ -165,6 +165,7 @@ class MainActivity : AppCompatActivity() {
         val inSelection = galleryFragment()?.isInSelectionMode() == true
         menu.findItem(R.id.action_settings).isVisible = !inSelection
         menu.findItem(R.id.action_share_zip).isVisible = inSelection
+        menu.findItem(R.id.action_share).isVisible = inSelection
         return true
     }
 
@@ -178,8 +179,36 @@ class MainActivity : AppCompatActivity() {
                 shareSelectionAsZip()
                 return true
             }
+            R.id.action_share -> {
+                shareSelectionIndividually()
+                return true
+            }
         }
         return super.onOptionsItemSelected(item)
+    }
+
+    private fun shareSelectionIndividually() {
+        val entries = galleryFragment()?.resolveSelectedEntries() ?: return
+        if (entries.isEmpty()) return
+        val uris = entries.mapNotNull { (path, _) ->
+            val file = java.io.File(path)
+            if (file.exists()) FileProvider.getUriForFile(this, "$packageName.fileprovider", file) else null
+        }
+        if (uris.isEmpty()) return
+        val intent = if (uris.size == 1) {
+            Intent(Intent.ACTION_SEND).apply {
+                type = "image/*"
+                putExtra(Intent.EXTRA_STREAM, uris.first())
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        } else {
+            Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                type = "image/*"
+                putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        }
+        startActivity(Intent.createChooser(intent, null))
     }
 
     private fun galleryFragment() = supportFragmentManager.fragments

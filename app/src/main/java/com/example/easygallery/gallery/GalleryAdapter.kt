@@ -38,12 +38,8 @@ class GalleryAdapter(
     private fun toggle(item: GalleryItem, position: Int) {
         val k = key(item)
         if (selectedKeys.contains(k)) selectedKeys.remove(k) else selectedKeys.add(k)
-        if (selectedKeys.isEmpty()) {
-            inSelectionMode = false
-            notifyItemRangeChanged(0, itemCount)
-        } else {
-            notifyItemChanged(position)
-        }
+        if (selectedKeys.isEmpty()) inSelectionMode = false
+        notifyItemRangeChanged(0, itemCount)
         onSelectionChanged(selectedKeys.toSet())
     }
 

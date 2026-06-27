@@ -27,15 +27,15 @@
         android:id="@+id/selectionOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#66000000"
+        android:background="#661E88E5"
         android:visibility="gone" />
 
     <ImageView
         android:id="@+id/checkIcon"
-        android:layout_width="24dp"
-        android:layout_height="24dp"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
         android:layout_gravity="top|end"
-        android:layout_margin="4dp"
+        android:layout_margin="6dp"
         android:src="@drawable/ic_check_circle"
         android:visibility="gone" />
 

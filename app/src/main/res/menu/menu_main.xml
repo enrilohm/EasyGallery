@@ -9,4 +9,9 @@
         android:title="Share as ZIP"
         android:orderInCategory="1"
         android:visible="false" />
+    <item
+        android:id="@+id/action_share"
+        android:title="Share"
+        android:orderInCategory="2"
+        android:visible="false" />
 </menu>
