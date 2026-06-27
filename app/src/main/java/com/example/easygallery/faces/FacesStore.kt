@@ -89,6 +89,12 @@ object FacesStore {
             .notEqual(FaceEntity_.faceIndex, -1L)
             .build().use { it.count().toInt() }
 
+    fun nearestFaceNeighbors(embedding: FloatArray, k: Int): List<Pair<Long, Float>> =
+        faceBox.query()
+            .nearestNeighbors(FaceEntity_.embedding, embedding, k)
+            .build().findWithScores()
+            .map { it.get().id to it.score.toFloat() }
+
     fun findSimilarFaces(query: FloatArray, topK: Int): List<String> =
         faceBox.query()
             .nearestNeighbors(FaceEntity_.embedding, query, topK * 3)
