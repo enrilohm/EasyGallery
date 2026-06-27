@@ -16,6 +16,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
@@ -28,6 +30,10 @@ import com.example.easygallery.faces.FaceOverlayView
 import com.example.easygallery.faces.FacesStore
 import com.example.easygallery.MainActivity
 import com.example.easygallery.R
+
+class ImageDetailViewModel : ViewModel() {
+    var paths: List<String> = emptyList()
+}
 
 class ImageDetailActivity : AppCompatActivity() {
 
@@ -50,7 +56,13 @@ class ImageDetailActivity : AppCompatActivity() {
 
         setContentView(R.layout.activity_image_detail)
 
-        paths = intent.getStringArrayListExtra(EXTRA_PATHS) ?: return finish()
+        val detailVm = ViewModelProvider(this)[ImageDetailViewModel::class.java]
+        if (detailVm.paths.isEmpty()) {
+            detailVm.paths = pendingPaths?.also { pendingPaths = null }
+                ?: intent.getStringArrayListExtra(EXTRA_PATHS)
+                ?: return finish()
+        }
+        paths = detailVm.paths
         val startIndex = intent.getIntExtra(EXTRA_INDEX, 0)
         highlightClusterId = intent.getLongExtra(EXTRA_HIGHLIGHT_CLUSTER_ID, -1L)
 
@@ -257,14 +269,16 @@ class ImageDetailActivity : AppCompatActivity() {
     }
 
     companion object {
-        private const val EXTRA_PATHS = "paths"
+        private const val EXTRA_PATHS = "paths" // kept for legacy fallback
         private const val EXTRA_INDEX = "index"
         private const val EXTRA_HIGHLIGHT_CLUSTER_ID = "highlight_cluster_id"
 
+        @Volatile var pendingPaths: List<String>? = null
+
         fun open(context: Context, paths: List<String>, index: Int = 0, highlightClusterId: Long = -1L) {
+            pendingPaths = paths
             context.startActivity(
                 Intent(context, ImageDetailActivity::class.java).apply {
-                    putStringArrayListExtra(EXTRA_PATHS, ArrayList(paths))
                     putExtra(EXTRA_INDEX, index)
                     putExtra(EXTRA_HIGHLIGHT_CLUSTER_ID, highlightClusterId)
                 }

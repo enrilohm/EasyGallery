@@ -24,6 +24,7 @@ import java.io.FileInputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import com.example.easygallery.gallery.GalleryFragment
+import com.example.easygallery.gallery.TimelineFragment
 import com.example.easygallery.gallery.GalleryViewModel
 import com.example.easygallery.search.ClipTextEncoder
 import com.example.easygallery.search.ClipEncoder
@@ -129,6 +130,7 @@ class MainActivity : AppCompatActivity() {
         val face  = prefs.getBoolean("face_detection_enabled", false)
         return buildList {
             add(TabType.GALLERY)
+            add(TabType.TIMELINE)
             if (clip || ocr || obj) add(TabType.SEARCH)
             if (obj) add(TabType.OBJECTS)
             add(TabType.MAP)
@@ -162,7 +164,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
-        val inSelection = galleryFragment()?.isInSelectionMode() == true
+        val inSelection = activeSelectionFragment() != null
         menu.findItem(R.id.action_settings).isVisible = !inSelection
         menu.findItem(R.id.action_share_zip).isVisible = inSelection
         menu.findItem(R.id.action_share).isVisible = inSelection
@@ -188,7 +190,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun shareSelectionIndividually() {
-        val entries = galleryFragment()?.resolveSelectedEntries() ?: return
+        val entries = resolveEntries().ifEmpty { return }
         if (entries.isEmpty()) return
         val uris = entries.mapNotNull { (path, _) ->
             val file = java.io.File(path)
@@ -214,8 +216,25 @@ class MainActivity : AppCompatActivity() {
     private fun galleryFragment() = supportFragmentManager.fragments
         .filterIsInstance<GalleryFragment>().firstOrNull()
 
+    private fun timelineFragment() = supportFragmentManager.fragments
+        .filterIsInstance<TimelineFragment>().firstOrNull()
+
+    private fun activeSelectionFragment(): Any? {
+        val gf = galleryFragment()
+        if (gf?.isInSelectionMode() == true) return gf
+        val tf = timelineFragment()
+        if (tf?.isInSelectionMode() == true) return tf
+        return null
+    }
+
+    private fun resolveEntries(): List<Pair<String, String>> = when (val f = activeSelectionFragment()) {
+        is GalleryFragment -> f.resolveSelectedEntries()
+        is TimelineFragment -> f.resolveSelectedEntries()
+        else -> emptyList()
+    }
+
     private fun shareSelectionAsZip() {
-        val entries = galleryFragment()?.resolveSelectedEntries() ?: return
+        val entries = resolveEntries().ifEmpty { return }
         if (entries.isEmpty()) return
         lifecycleScope.launch {
             val zipFile = withContext(Dispatchers.IO) {

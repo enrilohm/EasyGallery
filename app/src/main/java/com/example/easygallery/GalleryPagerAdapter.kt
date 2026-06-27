@@ -9,9 +9,11 @@ import com.example.easygallery.objects.ObjectBrowseFragment
 import com.example.easygallery.map.MapFragment
 import com.example.easygallery.faces.PeopleFragment
 import com.example.easygallery.gallery.FilterFragment
+import com.example.easygallery.gallery.TimelineFragment
 
 enum class TabType(val stableId: Long, val label: String) {
     GALLERY(0, "Gallery"),
+    TIMELINE(6, "Timeline"),
     SEARCH(1, "Search"),
     OBJECTS(2, "Objects"),
     MAP(3, "Map"),
@@ -29,8 +31,9 @@ class GalleryPagerAdapter(
     override fun containsItem(itemId: Long) = tabs.any { it.stableId == itemId }
 
     override fun createFragment(position: Int): Fragment = when (tabs[position]) {
-        TabType.GALLERY -> GalleryFragment()
-        TabType.SEARCH  -> SearchFragment()
+        TabType.GALLERY   -> GalleryFragment()
+        TabType.TIMELINE  -> TimelineFragment()
+        TabType.SEARCH    -> SearchFragment()
         TabType.OBJECTS -> ObjectBrowseFragment()
         TabType.MAP     -> MapFragment()
         TabType.PEOPLE  -> PeopleFragment()
