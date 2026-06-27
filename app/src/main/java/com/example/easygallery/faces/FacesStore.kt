@@ -172,6 +172,20 @@ object FacesStore {
             }
             .sortedByDescending { it.paths.size }
 
+    fun setClusterName(clusterId: Long, name: String?) {
+        val entity = clusterBox.get(clusterId) ?: return
+        entity.name = name ?: ""
+        clusterBox.put(entity)
+    }
+
+    fun getClusterEmbeddings(): Map<Long, List<FloatArray>> =
+        faceBox.query()
+            .greater(FaceEntity_.clusterId, 0L)
+            .greater(FaceEntity_.faceIndex, -1L)
+            .build().use { it.find() }
+            .groupBy { it.clusterId }
+            .mapValues { (_, faces) -> faces.mapNotNull { it.embedding } }
+
     fun getPathsForCluster(clusterId: Long): Set<String> =
         faceBox.query()
             .equal(FaceEntity_.clusterId, clusterId)

@@ -89,6 +89,7 @@ class PeopleFragment : Fragment() {
                     val result = FaceClusterer.cluster(faces, threshold)
                     FacesStore.storeClusters(result)
                 }
+                ContactFaceLinker.linkContactsToClusters(requireContext().applicationContext)
                 Triple(FacesStore.getStoredClusters(), FacesStore.countFaceEntries(), FacesStore.getClusterMemberBBoxes())
             }
             rawClusters = clusters

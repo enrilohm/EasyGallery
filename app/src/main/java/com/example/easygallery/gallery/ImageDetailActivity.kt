@@ -1,17 +1,23 @@
 package com.example.easygallery.gallery
 
+import android.content.ContentUris
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.RectF
 import android.net.Uri
 import android.os.Bundle
+import android.provider.ContactsContract
 import android.util.SparseArray
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.ImageButton
+import android.widget.Toast
 import java.io.File
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -37,7 +43,7 @@ class ImageDetailViewModel : ViewModel() {
 
 class ImageDetailActivity : AppCompatActivity() {
 
-    private val faceBoxCache = mutableMapOf<String, Pair<List<RectF>, List<RectF>>>()
+    private val faceBoxCache = mutableMapOf<String, List<FacesStore.FaceBox>>()
     private val holders = SparseArray<DetailPagerAdapter.VH>()
     private var showFaces = false
     private var highlightClusterId = -1L
@@ -46,6 +52,109 @@ class ImageDetailActivity : AppCompatActivity() {
     private lateinit var favoriteButton: ImageButton
     private lateinit var hiddenButton: ImageButton
     private var clipEnabled = false
+
+    private data class PendingFaceTap(val path: String, val box: FacesStore.FaceBox)
+    private var pendingFaceTap: PendingFaceTap? = null
+
+    private val contactPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val contactUri = result.data?.data ?: return@registerForActivityResult
+            val tap = pendingFaceTap ?: return@registerForActivityResult
+            lifecycleScope.launch(Dispatchers.IO) { handleContactPicked(contactUri, tap) }
+        }
+    }
+
+    private val writeContactsPermLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) launchContactPicker()
+        else Toast.makeText(this, "Contacts permission required", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun launchContactPicker() {
+        contactPickerLauncher.launch(
+            Intent(Intent.ACTION_PICK, ContactsContract.Contacts.CONTENT_URI)
+        )
+    }
+
+    private fun onFaceTapped(path: String, box: FacesStore.FaceBox) {
+        pendingFaceTap = PendingFaceTap(path, box)
+        if (checkSelfPermission(android.Manifest.permission.WRITE_CONTACTS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) launchContactPicker()
+        else writeContactsPermLauncher.launch(android.Manifest.permission.WRITE_CONTACTS)
+    }
+
+    private suspend fun handleContactPicked(contactUri: Uri, tap: PendingFaceTap) {
+        val contactId = ContentUris.parseId(contactUri)
+        val name = contentResolver.query(
+            ContactsContract.Contacts.CONTENT_URI,
+            arrayOf(ContactsContract.Contacts.DISPLAY_NAME_PRIMARY),
+            "${ContactsContract.Contacts._ID} = ?",
+            arrayOf(contactId.toString()), null,
+        )?.use { if (it.moveToFirst()) it.getString(0) else null }
+
+        val rawContactId = contentResolver.query(
+            ContactsContract.RawContacts.CONTENT_URI,
+            arrayOf(ContactsContract.RawContacts._ID),
+            "${ContactsContract.RawContacts.CONTACT_ID} = ?",
+            arrayOf(contactId.toString()), null,
+        )?.use { if (it.moveToFirst()) it.getLong(0) else null }
+
+        if (rawContactId == null) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(this@ImageDetailActivity, "Contact not found", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        val crop = cropFaceBitmap(tap.path, tap.box.bbox)
+        if (crop == null) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(this@ImageDetailActivity, "Could not load image", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        try {
+            val photoUri = Uri.withAppendedPath(
+                ContentUris.withAppendedId(ContactsContract.RawContacts.CONTENT_URI, rawContactId),
+                ContactsContract.RawContacts.DisplayPhoto.CONTENT_DIRECTORY,
+            )
+            contentResolver.openAssetFileDescriptor(photoUri, "rw")?.use { fd ->
+                fd.createOutputStream().use { stream ->
+                    crop.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+                }
+            }
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(this@ImageDetailActivity, "Failed to set photo", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+
+        val clusterId = tap.box.clusterId
+        if (clusterId != null && name != null) {
+            val cluster = FacesStore.getStoredClusters().firstOrNull { it.clusterId == clusterId }
+            if (cluster?.name == null) FacesStore.setClusterName(clusterId, name)
+        }
+
+        withContext(Dispatchers.Main) {
+            Toast.makeText(this@ImageDetailActivity, "Photo set for ${name ?: "contact"}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun cropFaceBitmap(path: String, bbox: RectF): Bitmap? {
+        val full = BitmapFactory.decodeFile(path) ?: return null
+        val extra = maxOf(bbox.width(), bbox.height()) * 0.3f
+        val l = ((bbox.left   - extra) * full.width ).toInt().coerceIn(0, full.width  - 1)
+        val t = ((bbox.top    - extra) * full.height).toInt().coerceIn(0, full.height - 1)
+        val r = ((bbox.right  + extra) * full.width ).toInt().coerceIn(l + 1, full.width)
+        val b = ((bbox.bottom + extra) * full.height).toInt().coerceIn(t + 1, full.height)
+        return Bitmap.createBitmap(full, l, t, r - l, b - t)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -222,23 +331,24 @@ class ImageDetailActivity : AppCompatActivity() {
         val path = paths[position]
         val cached = faceBoxCache[path]
         if (cached != null) {
-            holders[position]?.overlay?.setFaces(cached.first, cached.second)
+            applyFaceBoxes(position, path, cached)
             return
         }
         lifecycleScope.launch {
-            val (normal, highlighted) = withContext(Dispatchers.IO) {
-                val boxes = FacesStore.getFaceBoxesForPath(path)
-                val n = mutableListOf<RectF>()
-                val h = mutableListOf<RectF>()
-                for (box in boxes) {
-                    if (highlightClusterId >= 0 && box.clusterId == highlightClusterId) h.add(box.bbox)
-                    else n.add(box.bbox)
-                }
-                n to h
-            }
-            faceBoxCache[path] = normal to highlighted
-            if (showFaces) holders[position]?.overlay?.setFaces(normal, highlighted)
+            val boxes = withContext(Dispatchers.IO) { FacesStore.getFaceBoxesForPath(path) }
+            faceBoxCache[path] = boxes
+            if (showFaces) applyFaceBoxes(position, path, boxes)
         }
+    }
+
+    private fun applyFaceBoxes(position: Int, path: String, boxes: List<FacesStore.FaceBox>) {
+        val normal = mutableListOf<RectF>()
+        val highlighted = mutableListOf<RectF>()
+        for (box in boxes) {
+            if (highlightClusterId >= 0 && box.clusterId == highlightClusterId) highlighted.add(box.bbox)
+            else normal.add(box.bbox)
+        }
+        holders[position]?.overlay?.setFaces(normal, highlighted)
     }
 
     inner class DetailPagerAdapter(private val items: List<String>) :
@@ -264,7 +374,14 @@ class ImageDetailActivity : AppCompatActivity() {
             holder.overlay.clear()
             holder.cropFrame.selectionEnabled = clipEnabled
             holder.cropFrame.selectionCrop = null
-            holder.photoView.load(Uri.parse(items[position]))
+            val facePath = items[position]
+            holder.photoView.load(Uri.parse(facePath))
+            holder.photoView.setOnPhotoTapListener { _, x, y ->
+                if (!showFaces) return@setOnPhotoTapListener
+                val boxes = faceBoxCache[facePath] ?: return@setOnPhotoTapListener
+                val tapped = boxes.firstOrNull { it.bbox.contains(x, y) } ?: return@setOnPhotoTapListener
+                onFaceTapped(facePath, tapped)
+            }
         }
     }
 
