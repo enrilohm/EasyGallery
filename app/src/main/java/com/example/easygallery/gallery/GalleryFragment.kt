@@ -118,6 +118,7 @@ class GalleryFragment : Fragment() {
     }
 
     private fun updateView(restoreScroll: Boolean = false) {
+        recyclerView.stopScroll()
         updateToolbarTitle()
         val path = currentPath
         val map = dirMap
