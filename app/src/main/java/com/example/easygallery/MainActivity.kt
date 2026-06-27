@@ -149,7 +149,9 @@ class MainActivity : AppCompatActivity() {
         viewPager.adapter = adapter
         viewPager.offscreenPageLimit = maxOf(1, newTabs.size - 1)
         tabMediator = TabLayoutMediator(tabLayout, viewPager) { tab, position ->
-            tab.text = newTabs[position].label
+            tab.text = null
+            tab.icon = androidx.core.content.ContextCompat.getDrawable(this, newTabs[position].iconRes)
+            tab.contentDescription = newTabs[position].label
         }.also { it.attach() }
     }
 
