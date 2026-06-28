@@ -162,7 +162,7 @@ class PeopleFragment : Fragment() {
             holder.itemView.setOnClickListener {
                 ClusterImagesSheet.showPaths(
                     parentFragmentManager,
-                    cluster.paths,
+                    cluster.paths.sortedByDescending { java.io.File(it).lastModified() },
                     cluster.name ?: "Person ${position + 1}",
                     cluster.clusterId
                 )
