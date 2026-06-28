@@ -39,10 +39,13 @@ class CropFrameLayout @JvmOverloads constructor(
 
     var selectionEnabled = false
 
+    var onSelectionChanged: ((RectF?) -> Unit)? = null
+
     var selectionCrop: RectF? = null
         set(value) {
             field = value
             invalidate()
+            onSelectionChanged?.invoke(value)
         }
 
     private var photoView: PhotoView? = null

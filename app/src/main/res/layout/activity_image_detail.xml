@@ -80,6 +80,19 @@
     </LinearLayout>
 
     <ImageButton
+        android:id="@+id/setProfilePictureButton"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="8dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="Set as profile picture"
+        android:padding="8dp"
+        android:src="@drawable/ic_person"
+        android:alpha="0.9"
+        android:visibility="gone" />
+
+    <ImageButton
         android:id="@+id/favoriteButton"
         android:layout_width="56dp"
         android:layout_height="56dp"
