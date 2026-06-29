@@ -201,6 +201,16 @@ object FacesStore {
             }
             .sortedByDescending { it.paths.size }
 
+    fun getClusterName(clusterId: Long): String? {
+        val clusterName = clusterBox.get(clusterId)?.name?.ifEmpty { null }
+        if (clusterName != null) return clusterName
+        return faceBox.query()
+            .equal(FaceEntity_.clusterId, clusterId)
+            .notNull(FaceEntity_.contactName)
+            .build().use { it.findFirst() }
+            ?.contactName?.ifEmpty { null }
+    }
+
     fun setClusterName(clusterId: Long, name: String?) {
         val entity = clusterBox.get(clusterId) ?: return
         entity.name = name ?: ""

@@ -59,6 +59,7 @@ class ImageDetailActivity : AppCompatActivity() {
     private var pendingFaceTap: PendingFaceTap? = null
     private var pendingSelectionPath: String? = null
     private var pendingSelectionRect: RectF? = null
+    private var activeToast: Toast? = null
 
     private val contactPickerLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -89,16 +90,16 @@ class ImageDetailActivity : AppCompatActivity() {
         )
     }
 
-    private fun onFaceTapped(path: String, box: FacesStore.FaceBox) {
-        pendingFaceTap = PendingFaceTap(path, box)
-        val needed = arrayOf(
-            android.Manifest.permission.READ_CONTACTS,
-            android.Manifest.permission.WRITE_CONTACTS,
-        )
-        if (needed.all { checkSelfPermission(it) == android.content.pm.PackageManager.PERMISSION_GRANTED }) {
-            launchContactPicker()
-        } else {
-            contactsPermLauncher.launch(needed)
+    private fun onFaceTapped(path: String, box: FacesStore.FaceBox, position: Int) {
+        holders[position]?.cropFrame?.selectionCrop = RectF(box.bbox)
+        if (box.clusterId != null) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                val name = FacesStore.getClusterName(box.clusterId)
+                if (name != null) withContext(Dispatchers.Main) {
+                    activeToast?.cancel()
+                    activeToast = Toast.makeText(this@ImageDetailActivity, name, Toast.LENGTH_SHORT).also { it.show() }
+                }
+            }
         }
     }
 
@@ -473,7 +474,7 @@ class ImageDetailActivity : AppCompatActivity() {
                 if (!showFaces) return@setOnPhotoTapListener
                 val boxes = faceBoxCache[facePath] ?: return@setOnPhotoTapListener
                 val tapped = boxes.firstOrNull { it.bbox.contains(x, y) } ?: return@setOnPhotoTapListener
-                onFaceTapped(facePath, tapped)
+                onFaceTapped(facePath, tapped, position)
             }
         }
     }
