@@ -30,4 +30,6 @@ data class FaceEntity(
     var detectionScore: Float = 0f,
 
     @Index var clusterId: Long = 0,     // 0 = unassigned; > 0 = FaceClusterEntity.id
+
+    var contactName: String? = null,    // non-null = indexed from a contact photo, never shown in grids
 )

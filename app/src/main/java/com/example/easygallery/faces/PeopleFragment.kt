@@ -80,7 +80,8 @@ class PeopleFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             val (clusters, count, bboxes) = withContext(Dispatchers.IO) {
                 AppDatabase.init(requireContext().applicationContext)
-                if (recluster || !FacesStore.hasClusters()) {
+                val newContacts = FaceIndexManager.indexContactPhotos(requireContext().applicationContext)
+                if (recluster || newContacts || !FacesStore.hasClusters()) {
                     val prefs = requireContext()
                         .getSharedPreferences("gallery_prefs", android.content.Context.MODE_PRIVATE)
                     val threshold = prefs.getFloat("face_cluster_threshold", 0.45f)
@@ -89,7 +90,6 @@ class PeopleFragment : Fragment() {
                     val result = FaceClusterer.cluster(faces, threshold)
                     FacesStore.storeClusters(result)
                 }
-                ContactFaceLinker.linkContactsToClusters(requireContext().applicationContext)
                 Triple(FacesStore.getStoredClusters(), FacesStore.countFaceEntries(), FacesStore.getClusterMemberBBoxes())
             }
             rawClusters = clusters
@@ -111,7 +111,8 @@ class PeopleFragment : Fragment() {
                 snapshot.mapNotNull { c ->
                     val filteredPaths = c.paths.filter { it in allowedPaths }
                     if (filteredPaths.size < 2) return@mapNotNull null
-                    if (c.representativePath in allowedPaths) {
+                    val isContactRep = c.representativePath.startsWith("content://")
+                    if (isContactRep || c.representativePath in allowedPaths) {
                         c.copy(paths = filteredPaths)
                     } else {
                         val newRep = filteredPaths.first()
@@ -140,6 +141,7 @@ class PeopleFragment : Fragment() {
         inner class VH(view: View) : RecyclerView.ViewHolder(view) {
             val photo: ImageView = view.findViewById(R.id.contactPhoto)
             val name: TextView = view.findViewById(R.id.contactName)
+            val count: TextView = view.findViewById(R.id.photoCount)
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
@@ -149,7 +151,8 @@ class PeopleFragment : Fragment() {
 
         override fun onBindViewHolder(holder: VH, position: Int) {
             val cluster = items[position]
-            holder.name.text = cluster.name ?: "${cluster.paths.size} photos"
+            holder.name.text = cluster.name ?: ""
+            holder.count.text = cluster.paths.size.toString()
             val bbox = cluster.representativeBBox
             if (bbox != null) {
                 holder.photo.load(cluster.representativePath) {

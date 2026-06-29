@@ -10,20 +10,34 @@ Android photo gallery app with AI-powered search and analysis:
 - **Map view** of geotagged photos via OSMDroid
 - **People tab** showing contacts with photos
 
+## ADB Wi-Fi connection
+
+Phone: `Pixel-8-Pro.fritz.box` (DHCP-reserved, stable). Always run this before `adb install`:
+
+```bash
+PORT=$(nmap -p 30000-50000 Pixel-8-Pro.fritz.box --open -oG - 2>/dev/null | grep -oP '\d+(?=/open)' | head -1) && adb connect Pixel-8-Pro.fritz.box:$PORT
+```
+
+If the first connect fails, retry with the same port — it often succeeds on the second attempt:
+
+```bash
+adb connect Pixel-8-Pro.fritz.box:$PORT
+```
+
 ## Build, install, run
 
 ```bash
 # Build
-./gradlew assembleDebug
+ANDROID_HOME=/home/el/Android/Sdk ./gradlew assembleDebug
 
-# Install (phone must be connected via ADB)
+# Install (phone must be connected via ADB — see Wi-Fi connection above)
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 # Launch
 adb shell am start -n com.example.easygallery/.MainActivity
 
 # One-liner after edits
-./gradlew assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk && adb shell am start -n com.example.easygallery/.MainActivity
+ANDROID_HOME=/home/el/Android/Sdk ./gradlew assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk && adb shell am start -n com.example.easygallery/.MainActivity
 ```
 
 **Always build after every code change before reporting done.**

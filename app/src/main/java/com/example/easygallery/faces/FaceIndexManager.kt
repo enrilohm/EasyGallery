@@ -1,6 +1,10 @@
 package com.example.easygallery.faces
 
 import android.content.Context
+import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.provider.ContactsContract
 import android.provider.MediaStore
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
@@ -99,6 +103,60 @@ object FaceIndexManager {
                 _isRunning.postValue(false)
             }
         }
+    }
+
+    /** Index all contact photos that haven't been processed yet. Returns true if any were added. */
+    fun indexContactPhotos(context: Context): Boolean {
+        if (context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS)
+            != PackageManager.PERMISSION_GRANTED) return false
+        FaceEncoder.load(context)
+        FaceDetector.init(context)
+
+        val cursor = try {
+            context.contentResolver.query(
+                ContactsContract.Contacts.CONTENT_URI,
+                arrayOf(
+                    ContactsContract.Contacts.DISPLAY_NAME_PRIMARY,
+                    ContactsContract.Contacts.PHOTO_URI,
+                ),
+                "${ContactsContract.Contacts.PHOTO_URI} IS NOT NULL",
+                null, null,
+            )
+        } catch (e: Exception) { null } ?: return false
+
+        var added = false
+        cursor.use {
+            while (it.moveToNext()) {
+                val name = it.getString(0) ?: continue
+                val photoUriStr = it.getString(1) ?: continue
+                if (FacesStore.hasFaceEntry(photoUriStr)) continue
+
+                val bitmap = try {
+                    context.contentResolver.openInputStream(Uri.parse(photoUriStr))
+                        ?.use { s -> BitmapFactory.decodeStream(s) }
+                } catch (e: Exception) { null }
+
+                if (bitmap == null) {
+                    FacesStore.insertFace(photoUriStr, -1, FloatArray(0))
+                    continue
+                }
+
+                val faces = FaceDetector.detect(bitmap)
+                if (faces.size != 1) {
+                    FacesStore.insertFace(photoUriStr, -1, FloatArray(0))
+                    continue
+                }
+
+                val embedding = FaceEncoder.encode(faces[0].crop)
+                if (embedding != null) {
+                    FacesStore.insertContactFace(photoUriStr, name, embedding, faces[0].bounds)
+                    added = true
+                } else {
+                    FacesStore.insertFace(photoUriStr, -1, FloatArray(0))
+                }
+            }
+        }
+        return added
     }
 
     private fun queryImagePaths(context: Context): List<String> {

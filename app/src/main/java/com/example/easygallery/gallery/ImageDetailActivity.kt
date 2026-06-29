@@ -459,7 +459,7 @@ class ImageDetailActivity : AppCompatActivity() {
         override fun onBindViewHolder(holder: VH, position: Int) {
             holders.put(position, holder)
             holder.overlay.clear()
-            holder.cropFrame.selectionEnabled = clipEnabled
+            holder.cropFrame.selectionEnabled = true
             holder.cropFrame.selectionCrop = null
             holder.cropFrame.onSelectionChanged = { rect ->
                 if (holders[pager.currentItem] === holder) {

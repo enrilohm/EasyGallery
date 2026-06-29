@@ -49,7 +49,7 @@
     },
     {
       "id": "2:8639448531284202447",
-      "lastPropertyId": "16:729135636829244210",
+      "lastPropertyId": "17:6603266714431899272",
       "name": "FaceEntity",
       "properties": [
         {
@@ -138,6 +138,11 @@
           "indexId": "3:4017805743911895941",
           "type": 6,
           "flags": 8
+        },
+        {
+          "id": "17:6603266714431899272",
+          "name": "contactName",
+          "type": 9
         }
       ],
       "relations": []

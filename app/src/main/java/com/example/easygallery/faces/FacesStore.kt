@@ -20,13 +20,15 @@ object FacesStore {
         val blurScore: Float = 100f,
         val hasLandmarks: Boolean = true,
         val detectionScore: Float = 1f,
+        val contactName: String? = null,
     ) {
-        val isGoodQuality: Boolean get() =
-            kotlin.math.abs(yaw) < 30f &&
+        val isContact: Boolean get() = contactName != null
+        val isGoodQuality: Boolean get() = isContact ||
+            (kotlin.math.abs(yaw) < 30f &&
             kotlin.math.abs(pitch) < 25f &&
             faceSize > 0.04f &&
             blurScore > 30f &&
-            hasLandmarks
+            hasLandmarks)
     }
 
     data class StoredCluster(
@@ -76,6 +78,21 @@ object FacesStore {
             blurScore      = blurScore ?: 0f,
             hasLandmarks   = hasLandmarks ?: false,
             detectionScore = detectionScore ?: 0f,
+        ))
+    }
+
+    fun insertContactFace(path: String, contactName: String, embedding: FloatArray, bbox: RectF?) {
+        faceBox.put(FaceEntity(
+            path           = path,
+            faceIndex      = 0,
+            embedding      = embedding.takeIf { it.isNotEmpty() },
+            bboxLeft       = bbox?.left ?: 0f,
+            bboxTop        = bbox?.top ?: 0f,
+            bboxRight      = bbox?.right ?: 0f,
+            bboxBottom     = bbox?.bottom ?: 0f,
+            hasLandmarks   = true,
+            detectionScore = 1f,
+            contactName    = contactName,
         ))
     }
 
@@ -152,6 +169,7 @@ object FacesStore {
         faceBox.query()
             .greater(FaceEntity_.clusterId, 0L)
             .greater(FaceEntity_.faceIndex, -1L)
+            .isNull(FaceEntity_.contactName)
             .build().use { it.find() }
             .associate { face ->
                 (face.path to face.clusterId) to
@@ -165,15 +183,20 @@ object FacesStore {
                 val members = faceBox.query()
                     .equal(FaceEntity_.clusterId, cluster.id)
                     .build().use { it.find() }
+                val contactMember = members.firstOrNull { it.contactName != null }
+                val galleryPaths  = members.filter { it.contactName == null }.map { it.path }.distinct()
+                val repPath = contactMember?.path ?: cluster.representativePath
+                val repBBox = if (contactMember != null) null else RectF(
+                    cluster.representativeBboxLeft, cluster.representativeBboxTop,
+                    cluster.representativeBboxRight, cluster.representativeBboxBottom,
+                )
+                val name = cluster.name.ifEmpty { null } ?: contactMember?.contactName
                 StoredCluster(
                     clusterId          = cluster.id,
-                    name               = cluster.name.ifEmpty { null },
-                    representativePath = cluster.representativePath,
-                    representativeBBox = RectF(
-                        cluster.representativeBboxLeft, cluster.representativeBboxTop,
-                        cluster.representativeBboxRight, cluster.representativeBboxBottom,
-                    ),
-                    paths = members.map { it.path }.distinct(),
+                    name               = name,
+                    representativePath = repPath,
+                    representativeBBox = repBBox,
+                    paths              = galleryPaths,
                 )
             }
             .sortedByDescending { it.paths.size }
@@ -214,5 +237,6 @@ object FacesStore {
         blurScore      = blurScore,
         hasLandmarks   = hasLandmarks,
         detectionScore = detectionScore,
+        contactName    = contactName,
     )
 }
